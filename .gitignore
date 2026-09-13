@@ -19,3 +19,6 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Personal project notes
+PROMPT-MAESTRO-VEHICLE-API.txt
