@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, String
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, String, ForeignKeyConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -22,7 +22,6 @@ class Expense(Base):
     )
 
     maintenance_record_id: Mapped[int | None] = mapped_column(
-        ForeignKey("maintenance_records.id", ondelete="RESTRICT"),
         nullable=True,
     )
 
@@ -61,9 +60,14 @@ class Expense(Base):
         "amount >= 0",
         name="check_expense_amount_non_negative",
         ),
-    Index("ix_expenses_vehicle_id", "vehicle_id"),
-    Index(
-        "ix_expenses_maintenance_record_id",
-        "maintenance_record_id",
+        ForeignKeyConstraint(
+            ["vehicle_id", "maintenance_record_id"],
+            ["maintenance_records.vehicle_id", "maintenance_records.id"],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_expenses_vehicle_id", "vehicle_id"),
+        Index(
+            "ix_expenses_maintenance_record_id",
+            "maintenance_record_id",
         ),
     )

@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, String
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -72,6 +72,11 @@ class MaintenanceRecord(Base):
     CheckConstraint(
         "labor_cost >= 0",
         name="check_labor_cost_non_negative",
+        ),
+    UniqueConstraint(
+        "vehicle_id",
+        "id",
+        name="uq_maintenance_records_vehicle_id_id",
         ),
     Index("ix_maintenance_records_vehicle_id", "vehicle_id"),
     )
