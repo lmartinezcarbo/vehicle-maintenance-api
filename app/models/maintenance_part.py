@@ -34,17 +34,11 @@ class MaintenancePart(Base):
         Numeric(10, 2),
         nullable=False,
     )
-    maintenance_parts: Mapped[list["MaintenancePart"]] = relationship(
-        back_populates="part"
+    maintenance_record: Mapped["MaintenanceRecord"] = relationship(
+        back_populates="parts"
     )
     part: Mapped["Part"] = relationship(
         back_populates="maintenance_parts"
-    )   
-    __table_args__ = (
-        UniqueConstraint(
-            "maintenance_record_id",
-            "part_id",
-        ),
     )
     __table_args__ = (
     UniqueConstraint("maintenance_record_id", "part_id"),

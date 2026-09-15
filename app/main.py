@@ -1,4 +1,6 @@
 from fastapi import FastAPI
+from app.routers.users import router as users_router
+
 
 
 app = FastAPI( title="Vehicle Maintenance API",
@@ -9,6 +11,8 @@ app = FastAPI( title="Vehicle Maintenance API",
                 "email": "lmartinezcarbo1994@example.com",
                 },
             )
+
+app.include_router(users_router)
 
 @app.get("/")
 async def root():
