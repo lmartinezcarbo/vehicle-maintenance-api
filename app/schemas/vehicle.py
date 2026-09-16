@@ -26,10 +26,3 @@ class VehicleUpdate(BaseModel):
     year: int | None = None
     vin: str | None = None
     mileage: int | None = None
-
-class VehicleUpdate(BaseModel):
-    make: str | None = None
-    model: str | None = None
-    year: int | None = None
-    vin: str | None = None
-    mileage: int | None = None

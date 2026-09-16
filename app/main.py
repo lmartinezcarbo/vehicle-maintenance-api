@@ -1,5 +1,9 @@
 from fastapi import FastAPI
+
 from app.routers.users import router as users_router
+from app.routers.vehicles import router as vehicles_router
+
+
 
 
 
@@ -13,6 +17,8 @@ app = FastAPI( title="Vehicle Maintenance API",
             )
 
 app.include_router(users_router)
+app.include_router(vehicles_router)
+
 
 @app.get("/")
 async def root():

@@ -33,6 +33,7 @@ class User(Base):
         server_default=func.now(),
         nullable=False,
     )
+    
     vehicles: Mapped[list["Vehicle"]] = relationship(
         back_populates="user"
     )
