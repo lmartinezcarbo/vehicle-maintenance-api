@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.schemas import ExpenseCreate, ExpenseResponse, ExpenseUpdate
@@ -21,6 +21,20 @@ def create_expense(
     db: Session = Depends(get_db),
     access = Depends(get_access_user),
 ):
+    """
+    Create a new expense for a vehicle.
+    
+    - **vehicle_id**: ID of the vehicle the expense belongs to
+    - **category**: Category of the expense
+    - **amount**: Amount spent (must be positive)
+    - **description**: Optional description of the expense
+    - **expense_date**: Date when the expense occurred
+    - **maintenance_record_id**: Optional ID of associated maintenance record
+    
+    **Permissions**:
+    - Admin users can create expenses for any vehicle
+    - Regular users can only create expenses for their own vehicles
+    """
     vehicle = (
         db.query(Vehicle)
         .filter(Vehicle.id == expense.vehicle_id)
@@ -81,13 +95,23 @@ def get_expenses(
     db: Session = Depends(get_db),
     access = Depends(get_access_user),
 ):
+    """
+    Get all expenses.
+    
+    **Permissions**:
+    - Admin users can see all expenses
+    - Regular users can only see expenses for their own vehicles
+    
+    Returns:
+    - List of expense objects
+    """
     query = (
         db.query(Expense)
-        .join(Vehicle, Expense.vehicle_id == Vehicle.id)
+        .options(joinedload(Expense.vehicle))
     )
 
     if not access["is_admin"]:
-        query = query.filter(
+        query = query.join(Vehicle).filter(
             Vehicle.user_id == access["user"].id
         )
 
@@ -102,8 +126,19 @@ def get_expense(
     db: Session = Depends(get_db),
     access = Depends(get_access_user),
 ):
+    """
+    Get a specific expense by ID.
+    
+    **Permissions**:
+    - Admin users can access any expense
+    - Regular users can only access expenses for their own vehicles
+    
+    Returns:
+    - The expense object
+    """
     expense = (
         db.query(Expense)
+        .options(joinedload(Expense.vehicle))
         .filter(Expense.id == expense_id)
         .first()
     )
@@ -114,13 +149,7 @@ def get_expense(
             detail="Expense not found"
         )
 
-    vehicle = (
-        db.query(Vehicle)
-        .filter(Vehicle.id == expense.vehicle_id)
-        .first()
-    )
-
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+    if not access["is_admin"] and expense.vehicle.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this expense"
@@ -136,8 +165,19 @@ def update_expense(
     db: Session = Depends(get_db),
     access = Depends(get_access_user),
 ):
+    """
+    Update an existing expense.
+    
+    **Permissions**:
+    - Admin users can update any expense
+    - Regular users can only update expenses for their own vehicles
+    
+    Returns:
+    - The updated expense object
+    """
     expense_db = (
         db.query(Expense)
+        .options(joinedload(Expense.vehicle))
         .filter(Expense.id == expense_id)
         .first()
     )
@@ -148,13 +188,7 @@ def update_expense(
             detail="Expense not found"
         )
 
-    vehicle = (
-        db.query(Vehicle)
-        .filter(Vehicle.id == expense_db.vehicle_id)
-        .first()
-    )
-
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+    if not access["is_admin"] and expense_db.vehicle.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this expense"
@@ -177,8 +211,19 @@ def delete_expense(
     db: Session = Depends(get_db),
     access = Depends(get_access_user),
 ):
+    """
+    Delete an expense.
+    
+    **Permissions**:
+    - Admin users can delete any expense
+    - Regular users can only delete expenses for their own vehicles
+    
+    Returns:
+    - Success message
+    """
     expense = (
         db.query(Expense)
+        .options(joinedload(Expense.vehicle))
         .filter(Expense.id == expense_id)
         .first()
     )
@@ -189,13 +234,7 @@ def delete_expense(
             detail="Expense not found"
         )
 
-    vehicle = (
-        db.query(Vehicle)
-        .filter(Vehicle.id == expense.vehicle_id)
-        .first()
-    )
-
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+    if not access["is_admin"] and expense.vehicle.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this expense"

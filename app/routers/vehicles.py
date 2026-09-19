@@ -1,7 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, func
 from sqlalchemy.orm import Session
-
 
 from app.database import get_db
 from app.schemas import VehicleCreate, VehicleResponse, VehicleUpdate
@@ -9,7 +7,6 @@ from app.models import User
 from app.models.vehicle import Vehicle
 from app.core.dependencies import get_current_user, get_access_user
 from app.core.query_filters import filter_by_user_access
-
 
 router = APIRouter(
     prefix="/vehicles",
@@ -22,26 +19,27 @@ def create_vehicle(
     db: Session = Depends(get_db),
     access = Depends(get_access_user),
 ):
+    """
+    Create a new vehicle.
+    - Regular users can only create vehicles for themselves
+    - Admins can create vehicles for any user
+    """
     if access["is_admin"]:
+        if vehicle.user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Admin must specify a user_id"
+            )
         user_id = vehicle.user_id
-
-        if user_id is not None:
-            user = db.query(User).filter(User.id == user_id).first()
-
-            if user is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="User not found"
-                )
+        user = db.query(User).filter(User.id == user_id).first()
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
     else:
         user_id = access["user"].id
 
-    if user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Admin must specify a user_id"
-        )
-    
     new_vehicle = Vehicle(
         user_id=user_id,
         make=vehicle.make,
@@ -52,7 +50,7 @@ def create_vehicle(
     )
 
     db.add(new_vehicle)
-    db.commit ()
+    db.commit()
     db.refresh(new_vehicle)
 
     return new_vehicle
@@ -61,10 +59,14 @@ def create_vehicle(
 def get_vehicles(
     make: str | None = None,
     db: Session = Depends(get_db),
-    access: User = Depends(get_access_user),
+    access = Depends(get_access_user),
 ):
+    """
+    Get all vehicles.
+    - Regular users see only their vehicles
+    - Admins see all vehicles
+    """
     query = db.query(Vehicle)
-
     query = filter_by_user_access(
         query,
         access["user"],
@@ -74,16 +76,19 @@ def get_vehicles(
     if make is not None:
         query = query.filter(Vehicle.make == make)
 
-    vehicles = query.all()
+    return query.all()
 
-    return vehicles
-
-@router.get("/{vehicles_id}", response_model=VehicleResponse)
+@router.get("/{vehicle_id}", response_model=VehicleResponse)
 def get_vehicle(
     vehicle_id: int,
     db: Session = Depends(get_db),
     access = Depends(get_access_user)
 ):
+    """
+    Get a specific vehicle by ID.
+    - Regular users can only access their vehicles
+    - Admins can access any vehicle
+    """
     vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
     if vehicle is None:
@@ -100,13 +105,18 @@ def get_vehicle(
 
     return vehicle
 
-@router.patch("/{vehicles_id}", response_model=VehicleResponse)
+@router.patch("/{vehicle_id}", response_model=VehicleResponse)
 def update_vehicle(
     vehicle_id: int,
     vehicle: VehicleUpdate,
     db: Session = Depends(get_db),
     access = Depends(get_access_user),
 ):
+    """
+    Update a vehicle.
+    - Regular users can only update their vehicles
+    - Admins can update any vehicle
+    """
     vehicle_db = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
     if vehicle_db is None:
@@ -122,7 +132,6 @@ def update_vehicle(
         )
 
     update_data = vehicle.model_dump(exclude_unset=True)
-
     for field, value in update_data.items():
         setattr(vehicle_db, field, value)
 
@@ -137,6 +146,11 @@ def delete_vehicle(
     db: Session = Depends(get_db),
     access = Depends(get_access_user),
 ):
+    """
+    Delete a vehicle.
+    - Regular users can only delete their vehicles
+    - Admins can delete any vehicle
+    """
     vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
     if vehicle is None:
