@@ -5,6 +5,9 @@ from app.database import get_db
 from app.schemas import MaintenanceRecordCreate, MaintenanceRecordResponse, MaintenanceRecordUpdate
 from app.models.maintenance_record import MaintenanceRecord
 from app.models.vehicle import Vehicle
+from app.models import User
+from app.core.dependencies import get_current_user
+
 
 router = APIRouter(
     prefix="/maintenance-records", 
@@ -14,7 +17,8 @@ router = APIRouter(
 @router.post("/", response_model=MaintenanceRecordResponse)
 def create_maintenance_record(
     maintenance: MaintenanceRecordCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     vehicle = db.query(Vehicle).filter(Vehicle.id == maintenance.vehicle_id).first()
 
@@ -22,6 +26,12 @@ def create_maintenance_record(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Vehicle not found"
+        )
+
+    if vehicle.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this vehicle"
         )
 
     new_maintenance = MaintenanceRecord(
@@ -44,8 +54,14 @@ def create_maintenance_record(
 @router.get("/", response_model=list[MaintenanceRecordResponse])
 def get_maintenance_records(
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    maintenance_records = db.query(MaintenanceRecord).all()
+    maintenance_records = (
+        db.query(MaintenanceRecord)
+        .join(Vehicle, MaintenanceRecord.vehicle_id == Vehicle.id)
+        .filter(Vehicle.user_id == current_user.id)
+        .all()
+    )
 
     return maintenance_records
 
@@ -53,13 +69,30 @@ def get_maintenance_records(
 def get_maintenance_record(
     maintenance_record_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    maintenance_record = db.query(MaintenanceRecord).filter(MaintenanceRecord.id == maintenance_record_id).first()
+    maintenance_record = (
+        db.query(MaintenanceRecord)
+        .filter(MaintenanceRecord.id == maintenance_record_id)
+        .first()
+    )
 
     if maintenance_record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="maintenance record not found"
+            detail="Maintenance record not found"
+        )
+
+    vehicle = (
+        db.query(Vehicle)
+        .filter(Vehicle.id == maintenance_record.vehicle_id)
+        .first()
+    )
+
+    if vehicle.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this maintenance record"
         )
 
     return maintenance_record
@@ -69,14 +102,31 @@ def update_maintenance_record(
     maintenance_record_id: int,
     maintenance_record: MaintenanceRecordUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    maintenance_record_db = db.query(MaintenanceRecord).filter(MaintenanceRecord.id == maintenance_record_id).first()
+    maintenance_record_db = (
+        db.query(MaintenanceRecord)
+        .filter(MaintenanceRecord.id == maintenance_record_id)
+        .first()
+    )
 
     if maintenance_record_db is None:
-       raise HTTPException(
-           status_code=status.HTTP_404_NOT_FOUND,
-           detail="maintenance record not found"
-       ) 
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Maintenance record not found"
+        )
+
+    vehicle = (
+        db.query(Vehicle)
+        .filter(Vehicle.id == maintenance_record_db.vehicle_id)
+        .first()
+    )
+
+    if vehicle.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this maintenance record"
+        )
 
     update_data = maintenance_record.model_dump(exclude_unset=True)
 
@@ -92,17 +142,33 @@ def update_maintenance_record(
 def delete_maintenance_record(
     maintenance_record_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    maintenance_record = db.query(MaintenanceRecord).filter(MaintenanceRecord.id == maintenance_record_id).first()
+    maintenance_record = (
+        db.query(MaintenanceRecord)
+        .filter(MaintenanceRecord.id == maintenance_record_id)
+        .first()
+    )
 
     if maintenance_record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="maintenance record not found"
+            detail="Maintenance record not found"
+        )
+
+    vehicle = (
+        db.query(Vehicle)
+        .filter(Vehicle.id == maintenance_record.vehicle_id)
+        .first()
+    )
+
+    if vehicle.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this maintenance record"
         )
 
     db.delete(maintenance_record)
-
     db.commit()
 
-    return {"message": "Maintenance Record delete sucesfully"}
+    return {"message": "Maintenance record deleted successfully"}

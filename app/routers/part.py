@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.models import User
+from app.core.dependencies import get_current_user, require_admin
 from app.database import get_db
 from app.schemas import PartCreate, PartResponse, PartUpdate
 from app.models.part import Part
@@ -11,10 +13,11 @@ router = APIRouter(
     tags=["Parts"],
 )
 
-@router.post("/", response_model= PartResponse)
+@router.post("/", response_model=PartResponse)
 def create_part(
     part: PartCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
 ):
     new_part = Part(
         name=part.name,
@@ -31,7 +34,8 @@ def create_part(
 
 @router.get("/", response_model=list[PartResponse])
 def get_parts(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     parts = db.query(Part).all()
 
@@ -40,9 +44,10 @@ def get_parts(
 @router.get("/{part_id}", response_model=PartResponse)
 def get_part(
     part_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
-    part= db.query(Part).filter(Part.id == part_id).first()
+    part = db.query(Part).filter(Part.id == part_id).first()
 
     if part is None:
         raise HTTPException(
@@ -57,14 +62,15 @@ def update_part(
     part_id: int,
     part: PartUpdate,
     db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
 ):
     part_db = db.query(Part).filter(Part.id == part_id).first()
 
     if part_db is None:
-       raise HTTPException(
-           status_code=status.HTTP_404_NOT_FOUND,
-           detail="Part not found"
-       ) 
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Part not found"
+        )
 
     update_data = part.model_dump(exclude_unset=True)
 
@@ -80,6 +86,7 @@ def update_part(
 def delete_part(
     part_id: int,
     db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
 ):
     part = db.query(Part).filter(Part.id == part_id).first()
 
@@ -90,7 +97,6 @@ def delete_part(
         )
 
     db.delete(part)
-
     db.commit()
 
-    return {"message": "Part delete sucesfully"}
+    return {"message": "Part deleted successfully"}

@@ -7,6 +7,7 @@ from app.database import get_db
 from app.schemas import VehicleCreate, VehicleResponse, VehicleUpdate
 from app.models import User
 from app.models.vehicle import Vehicle
+from app.core.dependencies import get_current_user
 
 
 router = APIRouter(
@@ -16,21 +17,13 @@ router = APIRouter(
 
 @router.post("/", response_model=VehicleResponse)
 def create_vehicle(
-    user_id: int,
     vehicle: VehicleCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     
-    user = db.query(User).filter(User.id == user_id).first()
-
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
     new_vehicle = Vehicle(
-        user_id=user_id,
+        user_id=current_user.id,
         make=vehicle.make,
         model=vehicle.model,
         year=vehicle.year,
@@ -47,8 +40,11 @@ def create_vehicle(
 @router.get("/", response_model=list[VehicleResponse])
 def get_vehicles(
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    vehicles = db.query(Vehicle).all()
+    vehicles = db.query(Vehicle).filter(
+        Vehicle.user_id == current_user.id
+    ).all()
 
     return vehicles
 
@@ -56,6 +52,7 @@ def get_vehicles(
 def get_vehicle(
     vehicle_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
@@ -65,6 +62,12 @@ def get_vehicle(
             detail="Vehicle not found"
         )
 
+    if vehicle.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this vehicle"
+        )
+
     return vehicle
 
 @router.patch("/{vehicles_id}", response_model=VehicleResponse)
@@ -72,14 +75,21 @@ def update_vehicle(
     vehicle_id: int,
     vehicle: VehicleUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     vehicle_db = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
     if vehicle_db is None:
-       raise HTTPException(
-           status_code=status.HTTP_404_NOT_FOUND,
-           detail="vehicle not found"
-       ) 
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Vehicle not found"
+        )
+
+    if vehicle_db.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this vehicle"
+        )
 
     update_data = vehicle.model_dump(exclude_unset=True)
 
@@ -95,17 +105,23 @@ def update_vehicle(
 def delete_vehicle(
     vehicle_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
     if vehicle is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="vehicle not found"
+            detail="Vehicle not found"
+        )
+
+    if vehicle.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this vehicle"
         )
 
     db.delete(vehicle)
-
     db.commit()
 
-    return {"message": "Vehicle delete sucesfully"}
+    return {"message": "Vehicle deleted successfully"}
