@@ -6,21 +6,26 @@ from app.schemas import ExpenseCreate, ExpenseResponse, ExpenseUpdate
 from app.models.expense import Expense
 from app.models.vehicle import Vehicle
 from app.models.maintenance_record import MaintenanceRecord
-from app.models import User
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_access_user
+
 
 router = APIRouter(
     prefix="/expenses",
     tags=["Expenses"],
 )
 
+
 @router.post("/", response_model=ExpenseResponse)
 def create_expense(
     expense: ExpenseCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access = Depends(get_access_user),
 ):
-    vehicle = db.query(Vehicle).filter(Vehicle.id == expense.vehicle_id).first()
+    vehicle = (
+        db.query(Vehicle)
+        .filter(Vehicle.id == expense.vehicle_id)
+        .first()
+    )
 
     if vehicle is None:
         raise HTTPException(
@@ -28,20 +33,27 @@ def create_expense(
             detail="Vehicle not found"
         )
 
-    if vehicle.user_id != current_user.id:
+    if not access["is_admin"] and vehicle.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to create an expense for this vehicle"
         )
-    
+
     if expense.maintenance_record_id is not None:
-        maintenance_record = db.query(MaintenanceRecord).filter(MaintenanceRecord.id == expense.maintenance_record_id).first()
+        maintenance_record = (
+            db.query(MaintenanceRecord)
+            .filter(
+                MaintenanceRecord.id == expense.maintenance_record_id
+            )
+            .first()
+        )
 
         if maintenance_record is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Maintenance record not found"
             )
+
         if maintenance_record.vehicle_id != expense.vehicle_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -63,27 +75,38 @@ def create_expense(
 
     return new_expense
 
+
 @router.get("/", response_model=list[ExpenseResponse])
 def get_expenses(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access = Depends(get_access_user),
 ):
-    expenses = (
+    query = (
         db.query(Expense)
         .join(Vehicle, Expense.vehicle_id == Vehicle.id)
-        .filter(Vehicle.user_id == current_user.id)
-        .all()
     )
 
+    if not access["is_admin"]:
+        query = query.filter(
+            Vehicle.user_id == access["user"].id
+        )
+
+    expenses = query.all()
+
     return expenses
+
 
 @router.get("/{expense_id}", response_model=ExpenseResponse)
 def get_expense(
     expense_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access = Depends(get_access_user),
 ):
-    expense = db.query(Expense).filter(Expense.id == expense_id).first()
+    expense = (
+        db.query(Expense)
+        .filter(Expense.id == expense_id)
+        .first()
+    )
 
     if expense is None:
         raise HTTPException(
@@ -97,7 +120,7 @@ def get_expense(
         .first()
     )
 
-    if vehicle.user_id != current_user.id:
+    if not access["is_admin"] and vehicle.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this expense"
@@ -105,14 +128,19 @@ def get_expense(
 
     return expense
 
+
 @router.patch("/{expense_id}", response_model=ExpenseResponse)
 def update_expense(
     expense_id: int,
     expense: ExpenseUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access = Depends(get_access_user),
 ):
-    expense_db = db.query(Expense).filter(Expense.id == expense_id).first()
+    expense_db = (
+        db.query(Expense)
+        .filter(Expense.id == expense_id)
+        .first()
+    )
 
     if expense_db is None:
         raise HTTPException(
@@ -126,7 +154,7 @@ def update_expense(
         .first()
     )
 
-    if vehicle.user_id != current_user.id:
+    if not access["is_admin"] and vehicle.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this expense"
@@ -142,13 +170,18 @@ def update_expense(
 
     return expense_db
 
+
 @router.delete("/{expense_id}")
 def delete_expense(
     expense_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access = Depends(get_access_user),
 ):
-    expense = db.query(Expense).filter(Expense.id == expense_id).first()
+    expense = (
+        db.query(Expense)
+        .filter(Expense.id == expense_id)
+        .first()
+    )
 
     if expense is None:
         raise HTTPException(
@@ -162,7 +195,7 @@ def delete_expense(
         .first()
     )
 
-    if vehicle.user_id != current_user.id:
+    if not access["is_admin"] and vehicle.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this expense"

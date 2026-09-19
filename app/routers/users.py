@@ -3,10 +3,10 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, verify_password, create_access_token
-from app.schemas.user import UserCreate, UserResponse, UserUpdate, UserLogin
+from app.schemas.user import UserCreate, UserResponse, UserUpdate
 from app.database import get_db
 from app.models.user import User
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_access_user
 
 
 router = APIRouter(
@@ -16,12 +16,21 @@ router = APIRouter(
 
 @router.post("/", response_model=UserResponse)
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    new_user = User(
-        name=user.name,
-        email=user.email,
-        password_hash=hash_password(user.password)
-    )
+    
+    existing_user = db.query(User).filter(User.email == user.email).first()
 
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with this email already exists"
+        )
+
+    new_user = User(
+            name=user.name,
+            email=user.email,
+            password_hash=hash_password(user.password)
+        )
+    
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -31,15 +40,18 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
 @router.get("/", response_model=list[UserResponse])
 def get_users(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    access = Depends(get_access_user)
 ):
-    return [current_user]
+    if access["is_admin"]:
+        return db.query(User).all()
+
+    return [access["user"]]
 
 @router.get("/{user_id}", response_model=UserResponse)
 def get_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    access = Depends(get_access_user)
 ):
     user = db.query(User).filter(User.id == user_id).first()
 
@@ -49,7 +61,7 @@ def get_user(
             detail = "User not found"
         )
 
-    if current_user.id != user_id:
+    if not access["is_admin"] and access["user"].id != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this user"
@@ -62,7 +74,7 @@ def update_user(
     user_id: int,
     user_data: UserUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    access = Depends(get_access_user)
 ):
     user = db.query(User).filter(User.id == user_id).first()
 
@@ -72,7 +84,7 @@ def update_user(
             detail="User not found"
         )
 
-    if current_user.id != user_id:
+    if not access["is_admin"] and access["user"].id != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this user"
@@ -97,7 +109,7 @@ def update_user(
 def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    access = Depends(get_access_user)
 ):
     user = db.query(User).filter(User.id == user_id).first()
 
@@ -107,7 +119,7 @@ def delete_user(
             detail="User not found"
         )
 
-    if current_user.id != user_id:
+    if not access["is_admin"] and access["user"].id != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this user"

@@ -4,6 +4,7 @@ from datetime import datetime
 
 
 class VehicleCreate(BaseModel):
+    user_id: int | None = None
     make: str
     model: str
     year: int

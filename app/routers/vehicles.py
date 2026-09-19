@@ -7,7 +7,8 @@ from app.database import get_db
 from app.schemas import VehicleCreate, VehicleResponse, VehicleUpdate
 from app.models import User
 from app.models.vehicle import Vehicle
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_access_user
+from app.core.query_filters import filter_by_user_access
 
 
 router = APIRouter(
@@ -19,11 +20,30 @@ router = APIRouter(
 def create_vehicle(
     vehicle: VehicleCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access = Depends(get_access_user),
 ):
+    if access["is_admin"]:
+        user_id = vehicle.user_id
+
+        if user_id is not None:
+            user = db.query(User).filter(User.id == user_id).first()
+
+            if user is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found"
+                )
+    else:
+        user_id = access["user"].id
+
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Admin must specify a user_id"
+        )
     
     new_vehicle = Vehicle(
-        user_id=current_user.id,
+        user_id=user_id,
         make=vehicle.make,
         model=vehicle.model,
         year=vehicle.year,
@@ -39,12 +59,22 @@ def create_vehicle(
 
 @router.get("/", response_model=list[VehicleResponse])
 def get_vehicles(
+    make: str | None = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access: User = Depends(get_access_user),
 ):
-    vehicles = db.query(Vehicle).filter(
-        Vehicle.user_id == current_user.id
-    ).all()
+    query = db.query(Vehicle)
+
+    query = filter_by_user_access(
+        query,
+        access["user"],
+        Vehicle.user_id
+    )
+
+    if make is not None:
+        query = query.filter(Vehicle.make == make)
+
+    vehicles = query.all()
 
     return vehicles
 
@@ -52,7 +82,7 @@ def get_vehicles(
 def get_vehicle(
     vehicle_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    access = Depends(get_access_user)
 ):
     vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
@@ -62,7 +92,7 @@ def get_vehicle(
             detail="Vehicle not found"
         )
 
-    if vehicle.user_id != current_user.id:
+    if not access["is_admin"] and vehicle.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this vehicle"
@@ -75,7 +105,7 @@ def update_vehicle(
     vehicle_id: int,
     vehicle: VehicleUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access = Depends(get_access_user),
 ):
     vehicle_db = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
@@ -85,7 +115,7 @@ def update_vehicle(
             detail="Vehicle not found"
         )
 
-    if vehicle_db.user_id != current_user.id:
+    if not access["is_admin"] and vehicle_db.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this vehicle"
@@ -105,7 +135,7 @@ def update_vehicle(
 def delete_vehicle(
     vehicle_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access = Depends(get_access_user),
 ):
     vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
@@ -115,7 +145,7 @@ def delete_vehicle(
             detail="Vehicle not found"
         )
 
-    if vehicle.user_id != current_user.id:
+    if not access["is_admin"] and vehicle.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this vehicle"

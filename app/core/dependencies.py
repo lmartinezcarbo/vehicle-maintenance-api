@@ -49,3 +49,11 @@ def require_admin(
         )
 
     return current_user
+
+def get_access_user(
+    current_user: User = Depends(get_current_user),
+):
+    return {
+        "user": current_user,
+        "is_admin": current_user.role == "admin",
+    }

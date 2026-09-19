@@ -2,14 +2,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-
-from app.schemas import MaintenancePartCreate, MaintenancePartResponse, MaintenancePartUpdate
+from app.schemas import (
+    MaintenancePartCreate,
+    MaintenancePartResponse,
+    MaintenancePartUpdate,
+)
 from app.models.maintenance_part import MaintenancePart
 from app.models.maintenance_record import MaintenanceRecord
 from app.models.part import Part
 from app.models.vehicle import Vehicle
-from app.models import User
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_access_user
 
 
 router = APIRouter(
@@ -22,7 +24,7 @@ router = APIRouter(
 def create_maintenance_part(
     maintenance_part: MaintenancePartCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access = Depends(get_access_user),
 ):
     maintenance_record = (
         db.query(MaintenanceRecord)
@@ -44,7 +46,7 @@ def create_maintenance_part(
         .first()
     )
 
-    if vehicle.user_id != current_user.id:
+    if not access["is_admin"] and vehicle.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this maintenance record"
@@ -75,12 +77,13 @@ def create_maintenance_part(
 
     return new_maintenance_part
 
+
 @router.get("/", response_model=list[MaintenancePartResponse])
-def get_maintenace_part(
+def get_maintenance_part(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access = Depends(get_access_user),
 ):
-    maintenance_parts = (
+    query = (
         db.query(MaintenancePart)
         .join(
             MaintenanceRecord,
@@ -90,17 +93,26 @@ def get_maintenace_part(
             Vehicle,
             MaintenanceRecord.vehicle_id == Vehicle.id
         )
-        .filter(Vehicle.user_id == current_user.id)
-        .all()
     )
+
+    if not access["is_admin"]:
+        query = query.filter(
+            Vehicle.user_id == access["user"].id
+        )
+
+    maintenance_parts = query.all()
 
     return maintenance_parts
 
-@router.get("/{maintenance_part_id}", response_model=MaintenancePartResponse)
+
+@router.get(
+    "/{maintenance_part_id}",
+    response_model=MaintenancePartResponse
+)
 def get_maintenance_part(
     maintenance_part_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access = Depends(get_access_user),
 ):
     maintenance_part = (
         db.query(MaintenancePart)
@@ -128,7 +140,7 @@ def get_maintenance_part(
         .first()
     )
 
-    if vehicle.user_id != current_user.id:
+    if not access["is_admin"] and vehicle.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this maintenance part"
@@ -136,12 +148,16 @@ def get_maintenance_part(
 
     return maintenance_part
 
-@router.patch("/{maintenance_part_id}", response_model=MaintenancePartResponse)
+
+@router.patch(
+    "/{maintenance_part_id}",
+    response_model=MaintenancePartResponse
+)
 def update_maintenance_part(
     maintenance_part_id: int,
     maintenance_part: MaintenancePartUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access = Depends(get_access_user),
 ):
     maintenance_part_db = (
         db.query(MaintenancePart)
@@ -169,7 +185,7 @@ def update_maintenance_part(
         .first()
     )
 
-    if vehicle.user_id != current_user.id:
+    if not access["is_admin"] and vehicle.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this maintenance part"
@@ -185,11 +201,12 @@ def update_maintenance_part(
 
     return maintenance_part_db
 
+
 @router.delete("/{maintenance_part_id}")
 def delete_maintenance_part(
     maintenance_part_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    access = Depends(get_access_user),
 ):
     maintenance_part = (
         db.query(MaintenancePart)
@@ -217,7 +234,7 @@ def delete_maintenance_part(
         .first()
     )
 
-    if vehicle.user_id != current_user.id:
+    if not access["is_admin"] and vehicle.user_id != access["user"].id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this maintenance part"
@@ -227,4 +244,3 @@ def delete_maintenance_part(
     db.commit()
 
     return {"message": "Maintenance part deleted successfully"}
-    
