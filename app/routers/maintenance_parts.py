@@ -5,7 +5,9 @@ This module contains all the API endpoints related to maintenance parts.
 It handles CRUD operations for maintenance parts associated with maintenance records.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from enum import Enum
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -19,35 +21,28 @@ from app.models.maintenance_record import MaintenanceRecord
 from app.models.part import Part
 from app.models.vehicle import Vehicle
 from app.core.dependencies import get_access_user
+from app.core.query_params import get_sort_params, SortOrder
+
+
+class MaintenancePartSearchField(str, Enum):
+    part_number = "part_number"
+    manufacturer = "manufacturer"
+
 
 router = APIRouter(
     prefix="/maintenance-part",
     tags=["Maintenance Part"],
 )
 
+
 @router.post("/", response_model=MaintenancePartResponse)
 def create_maintenance_part(
     maintenance_part: MaintenancePartCreate,
     db: Session = Depends(get_db),
-    access = Depends(get_access_user),
+    access=Depends(get_access_user),
 ):
     """
     Create a new maintenance part record.
-
-    This endpoint creates a new maintenance part associated with a maintenance record.
-    The user must have access to the maintenance record's vehicle (either as admin or owner).
-
-    Parameters:
-        maintenance_part: MaintenancePartCreate - Data for the new maintenance part
-        db: Session - Database session
-        access: dict - User access information
-
-    Returns:
-        MaintenancePartResponse - The created maintenance part
-
-    Raises:
-        HTTPException: If maintenance record, part, or vehicle is not found,
-                      or if user is not authorized
     """
     maintenance_record = (
         db.query(MaintenanceRecord)
@@ -100,24 +95,28 @@ def create_maintenance_part(
 
     return new_maintenance_part
 
+
 @router.get("/", response_model=list[MaintenancePartResponse])
 def get_maintenance_parts(
+    maintenance_record_id: int | None = None,
+    part_id: int | None = None,
+    search: str | None = None,
+    search_by: MaintenancePartSearchField = (
+        MaintenancePartSearchField.part_number
+    ),
+    limit: int = Query(default=10, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    sort_params=Depends(get_sort_params),
     db: Session = Depends(get_db),
-    access = Depends(get_access_user),
+    access=Depends(get_access_user),
 ):
     """
-    Retrieve a list of all maintenance parts.
-
-    This endpoint returns all maintenance parts in the system.
-    For non-admin users, it only returns maintenance parts associated with their vehicles.
-
-    Parameters:
-        db: Session - Database session
-        access: dict - User access information
-
-    Returns:
-        List[MaintenancePartResponse] - List of maintenance parts
+    Retrieve maintenance parts.
+    - Admins see all maintenance parts
+    - Regular users see only maintenance parts for their vehicles
+    - Supports filtering, searching, pagination and sorting
     """
+
     query = (
         db.query(MaintenancePart)
         .join(
@@ -128,16 +127,68 @@ def get_maintenance_parts(
             Vehicle,
             MaintenanceRecord.vehicle_id == Vehicle.id
         )
+        .join(
+            Part,
+            MaintenancePart.part_id == Part.id
+        )
     )
 
+    # Ownership / access filter
     if not access["is_admin"]:
         query = query.filter(
             Vehicle.user_id == access["user"].id
         )
 
-    maintenance_parts = query.all()
+    # Exact filters
+    if maintenance_record_id is not None:
+        query = query.filter(
+            MaintenancePart.maintenance_record_id == maintenance_record_id
+        )
 
-    return maintenance_parts
+    if part_id is not None:
+        query = query.filter(
+            MaintenancePart.part_id == part_id
+        )
+
+    # Search
+    if search:
+        if search_by == MaintenancePartSearchField.part_number:
+            query = query.filter(
+                Part.part_number.ilike(f"%{search}%")
+            )
+        else:
+            query = query.filter(
+                Part.manufacturer.ilike(f"%{search}%")
+            )
+
+    # Sorting
+    sort_columns = {
+        "quantity": MaintenancePart.quantity,
+        "unit_cost": MaintenancePart.unit_cost,
+        "maintenance_record_id": MaintenancePart.maintenance_record_id,
+        "part_id": MaintenancePart.part_id,
+    }
+
+    sort_by = sort_params["sort_by"]
+    order = sort_params["order"]
+
+    if sort_by:
+        sort_column = sort_columns.get(sort_by)
+
+        if sort_column is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid sort field"
+            )
+
+        if order == SortOrder.asc:
+            query = query.order_by(sort_column.asc())
+        else:
+            query = query.order_by(sort_column.desc())
+
+    # Pagination
+    return query.offset(offset).limit(limit).all()
+
 
 @router.get(
     "/{maintenance_part_id}",
@@ -146,24 +197,10 @@ def get_maintenance_parts(
 def get_maintenance_part_by_id(
     maintenance_part_id: int,
     db: Session = Depends(get_db),
-    access = Depends(get_access_user),
+    access=Depends(get_access_user),
 ):
     """
     Retrieve a specific maintenance part by its ID.
-
-    This endpoint returns details of a single maintenance part.
-    Access is restricted to admin users or the owner of the vehicle associated with the maintenance part.
-
-    Parameters:
-        maintenance_part_id: int - ID of the maintenance part to retrieve
-        db: Session - Database session
-        access: dict - User access information
-
-    Returns:
-        MaintenancePartResponse - The requested maintenance part
-
-    Raises:
-        HTTPException: If maintenance part is not found or user is not authorized
     """
     maintenance_part = (
         db.query(MaintenancePart)
@@ -199,6 +236,7 @@ def get_maintenance_part_by_id(
 
     return maintenance_part
 
+
 @router.patch(
     "/{maintenance_part_id}",
     response_model=MaintenancePartResponse
@@ -207,25 +245,10 @@ def update_maintenance_part(
     maintenance_part_id: int,
     maintenance_part: MaintenancePartUpdate,
     db: Session = Depends(get_db),
-    access = Depends(get_access_user),
+    access=Depends(get_access_user),
 ):
     """
     Update an existing maintenance part.
-
-    This endpoint updates a maintenance part's details.
-    The user must have access to the maintenance part's vehicle (either as admin or owner).
-
-    Parameters:
-        maintenance_part_id: int - ID of the maintenance part to update
-        maintenance_part: MaintenancePartUpdate - Updated data for the maintenance part
-        db: Session - Database session
-        access: dict - User access information
-
-    Returns:
-        MaintenancePartResponse - The updated maintenance part
-
-    Raises:
-        HTTPException: If maintenance part is not found or user is not authorized
     """
     maintenance_part_db = (
         db.query(MaintenancePart)
@@ -269,28 +292,15 @@ def update_maintenance_part(
 
     return maintenance_part_db
 
+
 @router.delete("/{maintenance_part_id}")
 def delete_maintenance_part(
     maintenance_part_id: int,
     db: Session = Depends(get_db),
-    access = Depends(get_access_user),
+    access=Depends(get_access_user),
 ):
     """
     Delete a maintenance part.
-
-    This endpoint deletes a maintenance part record.
-    The user must have access to the maintenance part's vehicle (either as admin or owner).
-
-    Parameters:
-        maintenance_part_id: int - ID of the maintenance part to delete
-        db: Session - Database session
-        access: dict - User access information
-
-    Returns:
-        dict - Success message
-
-    Raises:
-        HTTPException: If maintenance part is not found or user is not authorized
     """
     maintenance_part = (
         db.query(MaintenancePart)

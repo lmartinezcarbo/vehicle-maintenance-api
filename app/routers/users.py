@@ -1,17 +1,24 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from enum import Enum
 
 from app.core.security import hash_password, verify_password, create_access_token
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
 from app.database import get_db
 from app.models.user import User
 from app.core.dependencies import get_access_user
+from app.core.query_params import get_sort_params, SortOrder
 
 router = APIRouter(
     prefix="/users",
     tags=["Users"],
 )
+
+
+class UserSearchField(str, Enum):
+    name = "name"
+    email = "email"
 
 @router.post("/", response_model=UserResponse)
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
@@ -41,18 +48,63 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
 
     return new_user
 
+
 @router.get("/", response_model=list[UserResponse])
 def get_users(
+    name: str | None = None,
+    search: str | None = None,
+    search_by: UserSearchField = UserSearchField.name,
+    limit: int = Query(default=10, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    sort_params = Depends(get_sort_params),
     db: Session = Depends(get_db),
     access = Depends(get_access_user)
 ):
     """
-    Get all users.
-    - Admins see all users
+    Get users.
+    - Admins can filter, paginate, and limit results
     - Regular users see only their own profile
     """
     if access["is_admin"]:
-        return db.query(User).all()
+        query = db.query(User)
+
+        if search:
+            if search_by == UserSearchField.name:
+                query = query.filter(
+                    User.name.ilike(f"%{search}%")
+                )
+            else:
+                query = query.filter(
+                    User.email.ilike(f"%{search}%")
+                )
+
+        sort_columns = {
+            "name": User.name,
+            "email": User.email,
+            "created_at": User.created_at,
+        }
+
+        sort_by = sort_params["sort_by"]
+        order = sort_params["order"]
+
+        if sort_by:
+            sort_column = sort_columns.get(sort_by)
+
+            if sort_column is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid sort field"
+                )
+
+            if order == SortOrder.asc:
+                query = query.order_by(sort_column.asc())
+            else:
+                query = query.order_by(sort_column.desc())
+
+        if name:
+            query = query.filter(User.name == name)
+
+        return query.offset(offset).limit(limit).all()
 
     return [access["user"]]
 
@@ -82,6 +134,7 @@ def get_user(
         )
 
     return user
+
 
 @router.patch("/{user_id}", response_model=UserResponse)
 def update_user(
@@ -125,6 +178,7 @@ def update_user(
 
     return user_db
 
+
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: int,
@@ -154,6 +208,7 @@ def delete_user(
     db.commit()
 
     return
+
 
 @router.post("/login")
 def login(

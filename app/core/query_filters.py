@@ -1,6 +1,5 @@
 from sqlalchemy.orm import Query
 from app.models.user import User
-from app.models.vehicle import Vehicle
 
 
 def filter_by_user_access(
