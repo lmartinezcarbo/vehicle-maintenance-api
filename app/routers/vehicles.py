@@ -24,7 +24,11 @@ router = APIRouter(
 )
 
 
-@router.post("/", response_model=VehicleResponse)
+@router.post(
+    "/",
+    response_model=VehicleResponse,
+    status_code=status.HTTP_201_CREATED
+)
 def create_vehicle(
     vehicle: VehicleCreate,
     db: Session = Depends(get_db),

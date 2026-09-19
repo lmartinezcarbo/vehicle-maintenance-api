@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from datetime import datetime
 
@@ -9,7 +9,7 @@ class VehicleCreate(BaseModel):
     model: str
     year: int
     vin: str
-    mileage: int
+    mileage: int = Field(..., ge=0)
 
 class VehicleResponse(BaseModel):
     id: int
@@ -26,4 +26,4 @@ class VehicleUpdate(BaseModel):
     model: str | None = None
     year: int | None = None
     vin: str | None = None
-    mileage: int | None = None
+    mileage: int | None = Field(default=None, ge=0)

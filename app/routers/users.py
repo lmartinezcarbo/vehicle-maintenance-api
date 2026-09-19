@@ -20,7 +20,7 @@ class UserSearchField(str, Enum):
     name = "name"
     email = "email"
 
-@router.post("/", response_model=UserResponse)
+@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
     """
     Create a new user.
@@ -107,6 +107,12 @@ def get_users(
         return query.offset(offset).limit(limit).all()
 
     return [access["user"]]
+
+@router.get("/me", response_model=UserResponse)
+def get_current_user_profile(
+    access=Depends(get_access_user)
+):
+    return access["user"]
 
 @router.get("/{user_id}", response_model=UserResponse)
 def get_user(
