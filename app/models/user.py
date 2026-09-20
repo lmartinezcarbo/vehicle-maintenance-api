@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.models.vehicle import Vehicle
+    from app.models.refresh_token import RefreshToken
 
 
 class User(Base):
@@ -41,5 +42,9 @@ class User(Base):
     )
     
     vehicles: Mapped[list["Vehicle"]] = relationship(
+        back_populates="user"
+    )
+
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
         back_populates="user"
     )
