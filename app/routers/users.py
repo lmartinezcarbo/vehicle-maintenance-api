@@ -129,8 +129,8 @@ def get_user(
 
     if user is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this user"
         )
 
     if not access["is_admin"] and access["user"].id != user_id:
@@ -159,8 +159,8 @@ def update_user(
 
     if user_db is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this user"
         )
 
     if not access["is_admin"] and access["user"].id != user_id:
@@ -200,8 +200,8 @@ def delete_user(
 
     if user is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this user"
         )
 
     if not access["is_admin"] and access["user"].id != user_id:

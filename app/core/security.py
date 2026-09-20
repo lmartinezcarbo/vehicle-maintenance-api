@@ -1,10 +1,7 @@
 from pwdlib import PasswordHash
 from datetime import datetime, timedelta, timezone
 import jwt
-
-
-SECRET_KEY = "una-clave-temporal"
-ALGORITHM = "HS256"
+from app.core.config import settings
 
 password_hash = PasswordHash.recommended()
 
@@ -22,15 +19,19 @@ def create_access_token(data: dict) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=30)
     to_encode["exp"] = expire
 
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    
+    encoded_jwt = jwt.encode(
+        to_encode,
+        settings.secret_key,
+        algorithm=settings.algorithm,
+    )
+
     return encoded_jwt
 
 def verify_token(token: str) -> dict:
     payload = jwt.decode(
         token,
-        SECRET_KEY,
-        algorithms=[ALGORITHM]
+        settings.secret_key,
+        algorithms=[settings.algorithm]
     )
     
     return payload

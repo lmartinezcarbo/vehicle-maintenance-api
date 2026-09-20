@@ -174,8 +174,8 @@ def get_vehicle(
 
     if vehicle is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Vehicle not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this vehicle"
         )
 
     if not access["is_admin"] and vehicle.user_id != access["user"].id:
@@ -203,8 +203,8 @@ def update_vehicle(
 
     if vehicle_db is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Vehicle not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this vehicle"
         )
 
     if not access["is_admin"] and vehicle_db.user_id != access["user"].id:
@@ -239,8 +239,8 @@ def delete_vehicle(
 
     if vehicle is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Vehicle not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this vehicle"
         )
 
     if not access["is_admin"] and vehicle.user_id != access["user"].id:

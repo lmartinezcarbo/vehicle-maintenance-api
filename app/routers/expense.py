@@ -45,8 +45,8 @@ def create_expense(
 
     if vehicle is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Vehicle not found",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to create an expense for this vehicle",
         )
 
     # Authorization: regular users can only use their own vehicle
@@ -225,8 +225,8 @@ def get_expense(
 
     if expense is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Expense not found",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this expense",
         )
 
     # Authorization
@@ -263,8 +263,8 @@ def update_expense(
 
     if expense_db is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Expense not found",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this expense",
         )
 
     # ---------------------------------------------------------
@@ -292,8 +292,8 @@ def update_expense(
 
         if new_vehicle is None:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Vehicle not found",
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to use this vehicle",
             )
 
         # A regular user cannot move the expense to another user's vehicle
@@ -377,8 +377,8 @@ def delete_expense(
 
     if expense is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Expense not found",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this expense",
         )
 
     # Authorization

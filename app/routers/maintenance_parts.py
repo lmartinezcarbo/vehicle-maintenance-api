@@ -54,8 +54,8 @@ def create_maintenance_part(
 
     if maintenance_record is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Maintenance record not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this maintenance record"
         )
 
     vehicle = (
@@ -210,8 +210,8 @@ def get_maintenance_part_by_id(
 
     if maintenance_part is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Maintenance part not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this maintenance part"
         )
 
     maintenance_record = (
@@ -258,8 +258,8 @@ def update_maintenance_part(
 
     if maintenance_part_db is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Maintenance part not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this maintenance part"
         )
 
     maintenance_record = (
@@ -310,8 +310,8 @@ def delete_maintenance_part(
 
     if maintenance_part is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Maintenance part not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this maintenance part"
         )
 
     maintenance_record = (

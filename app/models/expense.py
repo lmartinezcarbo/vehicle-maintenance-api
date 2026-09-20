@@ -54,7 +54,8 @@ class Expense(Base):
         back_populates="expenses"
     )
     maintenance_record: Mapped["MaintenanceRecord | None"] = relationship(
-        back_populates="expenses"
+        back_populates="expenses",
+        foreign_keys=[maintenance_record_id],
     )
     __table_args__ = (
     CheckConstraint(

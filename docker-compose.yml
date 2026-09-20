@@ -25,6 +25,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg://vehicle_user:vehicle_password@postgres:5432/vehicle_maintenance
+      SECRET_KEY: ${SECRET_KEY}
     ports:
       - "8000:8000"
 

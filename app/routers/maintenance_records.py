@@ -46,8 +46,8 @@ def create_maintenance_record(
 
     if vehicle is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Vehicle not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this vehicle"
         )
 
     if not access["is_admin"] and vehicle.user_id != access["user"].id:
@@ -181,8 +181,8 @@ def get_maintenance_record(
 
     if maintenance_record is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Maintenance record not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this maintenance record"
         )
 
     vehicle = (
@@ -224,8 +224,8 @@ def update_maintenance_record(
 
     if maintenance_record_db is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Maintenance record not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this maintenance record"
         )
 
     vehicle = (
@@ -271,8 +271,8 @@ def delete_maintenance_record(
 
     if maintenance_record is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Maintenance record not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this maintenance record"
         )
 
     vehicle = (
