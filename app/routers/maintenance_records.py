@@ -1,6 +1,6 @@
 from enum import Enum
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -14,6 +14,7 @@ from app.models.maintenance_record import MaintenanceRecord
 from app.models.vehicle import Vehicle
 from app.core.dependencies import get_access_user
 from app.core.query_params import get_sort_params, SortOrder
+from app.core.rate_limit import limiter
 
 
 class MaintenanceSearchField(str, Enum):
@@ -28,7 +29,9 @@ router = APIRouter(
 
 
 @router.post("/", response_model=MaintenanceRecordResponse)
+@limiter.limit("20/minute")
 def create_maintenance_record(
+    request: Request,
     maintenance: MaintenanceRecordCreate,
     db: Session = Depends(get_db),
     access=Depends(get_access_user),
@@ -205,7 +208,9 @@ def get_maintenance_record(
     "/{maintenance_record_id}",
     response_model=MaintenanceRecordResponse
 )
+@limiter.limit("20/minute")
 def update_maintenance_record(
+    request: Request,
     maintenance_record_id: int,
     maintenance_data: MaintenanceRecordUpdate,
     db: Session = Depends(get_db),
@@ -251,8 +256,11 @@ def update_maintenance_record(
 
     return maintenance_record_db
 
+
 @router.put("/{record_id}", response_model=MaintenanceRecordResponse)
+@limiter.limit("20/minute")
 def replace_maintenance_record(
+    request: Request,
     record_id: int,
     record_data: MaintenanceRecordPut,
     db: Session = Depends(get_db),
@@ -294,8 +302,11 @@ def replace_maintenance_record(
 
     return record_db
 
+
 @router.delete("/{maintenance_record_id}")
+@limiter.limit("20/minute")
 def delete_maintenance_record(
+    request: Request,
     maintenance_record_id: int,
     db: Session = Depends(get_db),
     access=Depends(get_access_user),

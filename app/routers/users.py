@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from enum import Enum
 from datetime import datetime, timedelta, timezone
-
 from uuid import uuid4
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.core.security import hash_password, verify_password, create_access_token
 from app.schemas.user import UserCreate, UserResponse, UserUpdate, UserPut, RefreshTokenRequest
@@ -20,6 +21,7 @@ from app.core.security import (
     verify_password,
     verify_refresh_token,
 )
+from app.core.rate_limit import limiter
 
 router = APIRouter(
     prefix="/users",
@@ -32,7 +34,12 @@ class UserSearchField(str, Enum):
     email = "email"
 
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def create_user(user: UserCreate, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def create_user(
+    request: Request,
+    user: UserCreate,
+    db: Session = Depends(get_db)
+):
     """
     Create a new user.
     - Anyone can create a new user
@@ -257,7 +264,9 @@ def delete_user(
 
 
 @router.post("/login")
+@limiter.limit("5/minute")
 def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
@@ -305,7 +314,9 @@ def login(
     }
 
 @router.post("/refresh")
+@limiter.limit("10/minute")
 def refresh_token(
+    request: Request,
     data: RefreshTokenRequest,
     db: Session = Depends(get_db),
 ):
@@ -396,7 +407,9 @@ def refresh_token(
     }
 
 @router.post("/logout")
+@limiter.limit("10/minute")
 def logout(
+    request: Request,
     data: RefreshTokenRequest,
     db: Session = Depends(get_db),
 ):

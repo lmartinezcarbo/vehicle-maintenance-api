@@ -1,6 +1,6 @@
 from enum import Enum
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -10,6 +10,7 @@ from app.models.vehicle import Vehicle
 from app.core.dependencies import get_access_user
 from app.core.query_filters import filter_by_user_access
 from app.core.query_params import get_sort_params, SortOrder
+from app.core.rate_limit import limiter
 
 
 class VehicleSearchField(str, Enum):
@@ -29,7 +30,9 @@ router = APIRouter(
     response_model=VehicleResponse,
     status_code=status.HTTP_201_CREATED
 )
+@limiter.limit("20/minute")
 def create_vehicle(
+    request: Request,
     vehicle: VehicleCreate,
     db: Session = Depends(get_db),
     access=Depends(get_access_user),
@@ -188,7 +191,9 @@ def get_vehicle(
 
 
 @router.patch("/{vehicle_id}", response_model=VehicleResponse)
+@limiter.limit("20/minute")
 def update_vehicle(
+    request: Request,
     vehicle_id: int,
     vehicle: VehicleUpdate,
     db: Session = Depends(get_db),
@@ -223,8 +228,11 @@ def update_vehicle(
 
     return vehicle_db
 
+
 @router.put("/{vehicle_id}", response_model=VehicleResponse)
+@limiter.limit("20/minute")
 def replace_vehicle(
+    request: Request,
     vehicle_id: int,
     vehicle_data: VehiclePut,
     db: Session = Depends(get_db),
@@ -255,8 +263,11 @@ def replace_vehicle(
 
     return vehicle_db
 
+
 @router.delete("/{vehicle_id}")
+@limiter.limit("20/minute")
 def delete_vehicle(
+    request: Request,
     vehicle_id: int,
     db: Session = Depends(get_db),
     access=Depends(get_access_user),

@@ -7,7 +7,7 @@ It handles CRUD operations for maintenance parts associated with maintenance rec
 
 from enum import Enum
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -23,6 +23,7 @@ from app.models.part import Part
 from app.models.vehicle import Vehicle
 from app.core.dependencies import get_access_user
 from app.core.query_params import get_sort_params, SortOrder
+from app.core.rate_limit import limiter
 
 
 class MaintenancePartSearchField(str, Enum):
@@ -37,7 +38,9 @@ router = APIRouter(
 
 
 @router.post("/", response_model=MaintenancePartResponse)
+@limiter.limit("20/minute")
 def create_maintenance_part(
+    request: Request,
     maintenance_part: MaintenancePartCreate,
     db: Session = Depends(get_db),
     access=Depends(get_access_user),
@@ -242,7 +245,9 @@ def get_maintenance_part_by_id(
     "/{maintenance_part_id}",
     response_model=MaintenancePartResponse
 )
+@limiter.limit("20/minute")
 def update_maintenance_part(
+    request: Request,
     maintenance_part_id: int,
     maintenance_part: MaintenancePartUpdate,
     db: Session = Depends(get_db),
@@ -294,7 +299,9 @@ def update_maintenance_part(
     return maintenance_part_db
 
 @router.put("/{maintenance_part_id}", response_model=MaintenancePartResponse)
+@limiter.limit("20/minute")
 def replace_maintenance_part(
+    request: Request,
     maintenance_part_id: int,
     part_data: MaintenancePartPut,
     db: Session = Depends(get_db),
@@ -336,7 +343,9 @@ def replace_maintenance_part(
     return maintenance_part_db
 
 @router.delete("/{maintenance_part_id}")
+@limiter.limit("20/minute")
 def delete_maintenance_part(
+    request: Request,
     maintenance_part_id: int,
     db: Session = Depends(get_db),
     access=Depends(get_access_user),

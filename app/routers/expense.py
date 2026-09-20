@@ -1,6 +1,6 @@
 from enum import Enum
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
@@ -10,6 +10,7 @@ from app.models.vehicle import Vehicle
 from app.models.maintenance_record import MaintenanceRecord
 from app.core.dependencies import get_access_user
 from app.core.query_params import get_sort_params, SortOrder
+from app.core.rate_limit import limiter
 
 
 class ExpenseSearchField(str, Enum):
@@ -24,7 +25,9 @@ router = APIRouter(
 
 
 @router.post("/", response_model=ExpenseResponse)
+@limiter.limit("20/minute")
 def create_expense(
+    request: Request,
     expense: ExpenseCreate,
     db: Session = Depends(get_db),
     access=Depends(get_access_user),
@@ -240,7 +243,9 @@ def get_expense(
 
 
 @router.patch("/{expense_id}", response_model=ExpenseResponse)
+@limiter.limit("20/minute")
 def update_expense(
+    request: Request,
     expense_id: int,
     expense: ExpenseUpdate,
     db: Session = Depends(get_db),
@@ -354,7 +359,9 @@ def update_expense(
     return expense_db
 
 @router.put("/{expense_id}", response_model=ExpenseResponse)
+@limiter.limit("20/minute")
 def replace_expense(
+    request: Request,
     expense_id: int,
     expense_data: ExpensePut,
     db: Session = Depends(get_db),
@@ -395,7 +402,9 @@ def replace_expense(
     return expense_db
 
 @router.delete("/{expense_id}")
+@limiter.limit("20/minute")
 def delete_expense(
+    request: Request,
     expense_id: int,
     db: Session = Depends(get_db),
     access=Depends(get_access_user),

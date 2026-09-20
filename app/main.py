@@ -1,5 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from app.core.rate_limit import limiter
 import logging
 
 from app.routers.users import router as users_router
@@ -21,6 +24,12 @@ app = FastAPI( title="Vehicle Maintenance API",
                 "email": "lmartinezcarbo1994@example.com",
                 },
             )
+
+app.state.limiter = limiter
+app.add_exception_handler(
+    RateLimitExceeded,
+    _rate_limit_exceeded_handler,
+)
 
 app.add_middleware(
     CORSMiddleware,

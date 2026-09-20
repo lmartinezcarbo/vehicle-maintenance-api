@@ -1,6 +1,6 @@
 from enum import Enum
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.models import User
@@ -9,6 +9,7 @@ from app.database import get_db
 from app.schemas import PartCreate, PartResponse, PartUpdate, PartPut
 from app.models.part import Part
 from app.core.query_params import get_sort_params, SortOrder
+from app.core.rate_limit import limiter
 
 
 class PartSearchField(str, Enum):
@@ -25,7 +26,9 @@ router = APIRouter(
 
 
 @router.post("/", response_model=PartResponse)
+@limiter.limit("20/minute")
 def create_part(
+    request: Request,
     part: PartCreate,
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
@@ -153,7 +156,9 @@ def get_part(
 
 
 @router.patch("/{part_id}", response_model=PartResponse)
+@limiter.limit("20/minute")
 def update_part(
+    request: Request,
     part_id: int,
     part: PartUpdate,
     db: Session = Depends(get_db),
@@ -182,7 +187,9 @@ def update_part(
     return part_db
 
 @router.put("/{part_id}", response_model=PartResponse)
+@limiter.limit("20/minute")
 def replace_part(
+    request: Request,
     part_id: int,
     part_data: PartPut,
     db: Session = Depends(get_db),
@@ -216,7 +223,9 @@ def replace_part(
     return part_db
 
 @router.delete("/{part_id}")
+@limiter.limit("20/minute")
 def delete_part(
+    request: Request,
     part_id: int,
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
