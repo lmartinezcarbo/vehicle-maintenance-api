@@ -1,6 +1,10 @@
 from pwdlib import PasswordHash
 from datetime import datetime, timedelta, timezone
+
 import jwt
+import secrets
+
+
 from app.core.config import settings
 
 password_hash = PasswordHash.recommended()
@@ -35,3 +39,14 @@ def verify_token(token: str) -> dict:
     )
     
     return payload
+
+def create_refresh_token() -> str:
+    return secrets.token_urlsafe(64)
+
+
+def hash_refresh_token(token: str) -> str:
+    return password_hash.hash(token)
+
+
+def verify_refresh_token(token: str, token_hash: str) -> bool:
+    return password_hash.verify(token, token_hash)

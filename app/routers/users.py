@@ -2,13 +2,24 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from enum import Enum
+from datetime import datetime, timedelta, timezone
+
+from uuid import uuid4
 
 from app.core.security import hash_password, verify_password, create_access_token
-from app.schemas.user import UserCreate, UserResponse, UserUpdate, UserPut
+from app.schemas.user import UserCreate, UserResponse, UserUpdate, UserPut, RefreshTokenRequest
 from app.database import get_db
 from app.models.user import User
 from app.core.dependencies import get_access_user
 from app.core.query_params import get_sort_params, SortOrder
+from app.models.refresh_token import RefreshToken
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    hash_refresh_token,
+    verify_password,
+    verify_refresh_token,
+)
 
 router = APIRouter(
     prefix="/users",
@@ -274,7 +285,124 @@ def login(
         "role": user.role,
     })
 
+    refresh_token = create_refresh_token()
+    refresh_token_hash = hash_refresh_token(refresh_token)
+
+    refresh_token_record = RefreshToken(
+        user_id=user.id,
+        token_hash=refresh_token_hash,
+        family_id=uuid4(),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    db.add(refresh_token_record)
+    db.commit()
+
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer"
+    }
+
+@router.post("/refresh")
+def refresh_token(
+    data: RefreshTokenRequest,
+    db: Session = Depends(get_db),
+):
+    refresh_tokens = db.query(RefreshToken).all()
+
+    refresh_token_record = None
+
+    for token_record in refresh_tokens:
+        if verify_refresh_token(
+            data.refresh_token,
+            token_record.token_hash,
+        ):
+            refresh_token_record = token_record
+            break
+
+    if refresh_token_record is not None and refresh_token_record.revoked:
+        db.query(RefreshToken).filter(
+            RefreshToken.family_id == refresh_token_record.family_id
+        ).update(
+            {RefreshToken.revoked: True},
+            synchronize_session=False,
+        )
+
+        db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token reuse detected",
+        )
+
+    if refresh_token_record is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+
+    if refresh_token_record.expires_at <= datetime.now(timezone.utc):
+        refresh_token_record.revoked = True
+        db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token expired",
+        )
+
+    refresh_token_record.revoked = True
+    db.commit()
+
+    new_refresh_token = create_refresh_token()
+    new_refresh_token_hash = hash_refresh_token(new_refresh_token)
+
+    new_refresh_token_record = RefreshToken(
+        user_id=refresh_token_record.user_id,
+        token_hash=new_refresh_token_hash,
+        family_id=refresh_token_record.family_id,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    db.add(new_refresh_token_record)
+    db.commit()
+
+    access_token = create_access_token({
+        "sub": str(refresh_token_record.user_id),
+    })
+
+    return {
+        "access_token": access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+    }
+
+@router.post("/logout")
+def logout(
+    data: RefreshTokenRequest,
+    db: Session = Depends(get_db),
+):
+    refresh_tokens = db.query(RefreshToken).all()
+
+    refresh_token_record = None
+
+    for token_record in refresh_tokens:
+        if verify_refresh_token(
+            data.refresh_token,
+            token_record.token_hash,
+        ):
+            refresh_token_record = token_record
+            break
+
+    if refresh_token_record is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+
+    refresh_token_record.revoked = True
+    db.commit()
+
+    return {
+        "message": "Logout successful"
     }
