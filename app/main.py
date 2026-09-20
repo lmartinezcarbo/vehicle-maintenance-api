@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import logging
 
 from app.routers.users import router as users_router
@@ -20,6 +21,14 @@ app = FastAPI( title="Vehicle Maintenance API",
                 "email": "lmartinezcarbo1994@example.com",
                 },
             )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(users_router)
 app.include_router(vehicles_router)

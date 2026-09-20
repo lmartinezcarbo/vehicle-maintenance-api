@@ -30,3 +30,9 @@ class ExpenseUpdate(BaseModel):
     description: str | None = None
     expense_date: datetime | None = None
 
+class ExpensePut(BaseModel):
+    category: str
+    amount: Decimal
+    description: str | None = None
+    expense_date: datetime
+

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas import VehicleCreate, VehicleResponse, VehicleUpdate
+from app.schemas import VehicleCreate, VehicleResponse, VehicleUpdate, VehiclePut
 from app.models import User
 from app.models.vehicle import Vehicle
 from app.core.dependencies import get_access_user
@@ -223,6 +223,37 @@ def update_vehicle(
 
     return vehicle_db
 
+@router.put("/{vehicle_id}", response_model=VehicleResponse)
+def replace_vehicle(
+    vehicle_id: int,
+    vehicle_data: VehiclePut,
+    db: Session = Depends(get_db),
+    access=Depends(get_access_user),
+):
+    vehicle_db = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
+
+    if vehicle_db is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this vehicle"
+        )
+
+    if not access["is_admin"] and vehicle_db.user_id != access["user"].id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this vehicle"
+        )
+
+    vehicle_db.make = vehicle_data.make
+    vehicle_db.model = vehicle_data.model
+    vehicle_db.year = vehicle_data.year
+    vehicle_db.vin = vehicle_data.vin
+    vehicle_db.mileage = vehicle_data.mileage
+
+    db.commit()
+    db.refresh(vehicle_db)
+
+    return vehicle_db
 
 @router.delete("/{vehicle_id}")
 def delete_vehicle(

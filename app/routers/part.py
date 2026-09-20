@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.models import User
 from app.core.dependencies import get_current_user, require_admin
 from app.database import get_db
-from app.schemas import PartCreate, PartResponse, PartUpdate
+from app.schemas import PartCreate, PartResponse, PartUpdate, PartPut
 from app.models.part import Part
 from app.core.query_params import get_sort_params, SortOrder
 
@@ -181,6 +181,39 @@ def update_part(
 
     return part_db
 
+@router.put("/{part_id}", response_model=PartResponse)
+def replace_part(
+    part_id: int,
+    part_data: PartPut,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+
+    part_db = db.query(Part).filter(Part.id == part_id).first()
+
+    if part_db is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Part not found"
+        )
+
+    part_db = db.query(Part).filter(Part.id == part_id).first()
+
+    if part_db is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Part not found"
+        )
+
+    part_db.name = part_data.name
+    part_db.manufacturer = part_data.manufacturer
+    part_db.part_number = part_data.part_number
+    part_db.description = part_data.description
+
+    db.commit()
+    db.refresh(part_db)
+
+    return part_db
 
 @router.delete("/{part_id}")
 def delete_part(

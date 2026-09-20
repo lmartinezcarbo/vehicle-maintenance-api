@@ -27,3 +27,10 @@ class VehicleUpdate(BaseModel):
     year: int | None = None
     vin: str | None = None
     mileage: int | None = Field(default=None, ge=0)
+
+class VehiclePut(BaseModel):
+    make: str
+    model: str
+    year: int
+    vin: str
+    mileage: int = Field(..., ge=0)

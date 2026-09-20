@@ -22,3 +22,6 @@ class MaintenancePartUpdate(BaseModel):
     quantity: int | None = None
     unit_cost: Decimal | None = None
 
+class MaintenancePartPut(BaseModel):
+    quantity: int
+    unit_cost: Decimal

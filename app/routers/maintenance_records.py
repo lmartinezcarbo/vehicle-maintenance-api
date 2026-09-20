@@ -8,6 +8,7 @@ from app.schemas import (
     MaintenanceRecordCreate,
     MaintenanceRecordResponse,
     MaintenanceRecordUpdate,
+    MaintenanceRecordPut,
 )
 from app.models.maintenance_record import MaintenanceRecord
 from app.models.vehicle import Vehicle
@@ -250,6 +251,48 @@ def update_maintenance_record(
 
     return maintenance_record_db
 
+@router.put("/{record_id}", response_model=MaintenanceRecordResponse)
+def replace_maintenance_record(
+    record_id: int,
+    record_data: MaintenanceRecordPut,
+    db: Session = Depends(get_db),
+    access=Depends(get_access_user),
+):
+    record_db = (
+        db.query(MaintenanceRecord)
+        .filter(MaintenanceRecord.id == record_id)
+        .first()
+    )
+
+    if record_db is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this maintenance record"
+        )
+
+    vehicle = (
+        db.query(Vehicle)
+        .filter(Vehicle.id == record_db.vehicle_id)
+        .first()
+    )
+
+    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this maintenance record"
+        )
+
+    record_db.service_type = record_data.service_type
+    record_db.description = record_data.description
+    record_db.mileage = record_data.mileage
+    record_db.service_date = record_data.service_date
+    record_db.labor_cost = record_data.labor_cost
+    record_db.notes = record_data.notes
+
+    db.commit()
+    db.refresh(record_db)
+
+    return record_db
 
 @router.delete("/{maintenance_record_id}")
 def delete_maintenance_record(

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.schemas import ExpenseCreate, ExpenseResponse, ExpenseUpdate
+from app.schemas import ExpenseCreate, ExpenseResponse, ExpenseUpdate, ExpensePut
 from app.models.expense import Expense
 from app.models.vehicle import Vehicle
 from app.models.maintenance_record import MaintenanceRecord
@@ -353,6 +353,46 @@ def update_expense(
 
     return expense_db
 
+@router.put("/{expense_id}", response_model=ExpenseResponse)
+def replace_expense(
+    expense_id: int,
+    expense_data: ExpensePut,
+    db: Session = Depends(get_db),
+    access=Depends(get_access_user),
+):
+    expense_db = (
+        db.query(Expense)
+        .filter(Expense.id == expense_id)
+        .first()
+    )
+
+    if expense_db is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this expense"
+        )
+
+    vehicle = (
+        db.query(Vehicle)
+        .filter(Vehicle.id == expense_db.vehicle_id)
+        .first()
+    )
+
+    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this expense"
+        )
+
+    expense_db.category = expense_data.category
+    expense_db.amount = expense_data.amount
+    expense_db.description = expense_data.description
+    expense_db.expense_date = expense_data.expense_date
+
+    db.commit()
+    db.refresh(expense_db)
+
+    return expense_db
 
 @router.delete("/{expense_id}")
 def delete_expense(

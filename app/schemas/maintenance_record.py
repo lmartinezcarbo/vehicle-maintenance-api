@@ -31,3 +31,11 @@ class MaintenanceRecordUpdate(BaseModel):
     service_date: datetime | None = None
     labor_cost: Decimal | None = None
     notes: str | None = None
+
+class MaintenanceRecordPut(BaseModel):
+    service_type: str
+    description: str
+    mileage: int
+    service_date: datetime
+    labor_cost: Decimal
+    notes: str | None = None

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from enum import Enum
 
 from app.core.security import hash_password, verify_password, create_access_token
-from app.schemas.user import UserCreate, UserResponse, UserUpdate
+from app.schemas.user import UserCreate, UserResponse, UserUpdate, UserPut
 from app.database import get_db
 from app.models.user import User
 from app.core.dependencies import get_access_user
@@ -184,6 +184,35 @@ def update_user(
 
     return user_db
 
+@router.put("/{user_id}", response_model=UserResponse)
+def replace_user(
+    user_id: int,
+    user_data: UserPut,
+    db: Session = Depends(get_db),
+    access=Depends(get_access_user),
+):
+    user_db = db.query(User).filter(User.id == user_id).first()
+
+    if user_db is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this user"
+        )
+
+    if not access["is_admin"] and user_db.id != access["user"].id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this user"
+        )
+
+    user_db.name = user_data.name
+    user_db.email = user_data.email
+    user_db.password_hash = hash_password(user_data.password)
+
+    db.commit()
+    db.refresh(user_db)
+
+    return user_db
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(

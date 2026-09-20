@@ -11,10 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas import (
+from app.schemas.maintenance_part import (
     MaintenancePartCreate,
     MaintenancePartResponse,
     MaintenancePartUpdate,
+    MaintenancePartPut,
 )
 from app.models.maintenance_part import MaintenancePart
 from app.models.maintenance_record import MaintenanceRecord
@@ -292,6 +293,47 @@ def update_maintenance_part(
 
     return maintenance_part_db
 
+@router.put("/{maintenance_part_id}", response_model=MaintenancePartResponse)
+def replace_maintenance_part(
+    maintenance_part_id: int,
+    part_data: MaintenancePartPut,
+    db: Session = Depends(get_db),
+    access=Depends(get_access_user),
+):
+    maintenance_part_db = (
+        db.query(MaintenancePart)
+        .filter(MaintenancePart.id == maintenance_part_id)
+        .first()
+    )
+
+    if maintenance_part_db is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this maintenance part"
+        )
+
+    record = (
+        db.query(MaintenanceRecord)
+        .filter(
+            MaintenanceRecord.id
+            == maintenance_part_db.maintenance_record_id
+        )
+        .first()
+    )
+
+    if not access["is_admin"] and record.vehicle.user_id != access["user"].id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this maintenance part"
+        )
+
+    maintenance_part_db.quantity = part_data.quantity
+    maintenance_part_db.unit_cost = part_data.unit_cost
+
+    db.commit()
+    db.refresh(maintenance_part_db)
+
+    return maintenance_part_db
 
 @router.delete("/{maintenance_part_id}")
 def delete_maintenance_part(

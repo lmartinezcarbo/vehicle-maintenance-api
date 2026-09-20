@@ -22,3 +22,8 @@ class PartUpdate(BaseModel):
     part_number: str | None = None
     description: str | None = None
 
+class PartPut(BaseModel):
+    name: str
+    manufacturer: str
+    part_number: str
+    description: str | None = None
