@@ -38,6 +38,11 @@ class RefreshToken(Base):
         nullable=False,
         default=False,
     )
+    
+    revoked_reason: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

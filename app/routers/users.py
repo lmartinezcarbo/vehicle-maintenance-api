@@ -321,11 +321,18 @@ def refresh_token(
             refresh_token_record = token_record
             break
 
-    if refresh_token_record is not None and refresh_token_record.revoked:
+    if (
+        refresh_token_record is not None
+        and refresh_token_record.revoked
+        and refresh_token_record.revoked_reason == "rotation"
+    ):
         db.query(RefreshToken).filter(
             RefreshToken.family_id == refresh_token_record.family_id
         ).update(
-            {RefreshToken.revoked: True},
+            {
+                RefreshToken.revoked: True,
+                RefreshToken.revoked_reason: "reuse",
+            },
             synchronize_session=False,
         )
 
@@ -334,6 +341,16 @@ def refresh_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token reuse detected",
+        )
+
+    if (
+        refresh_token_record is not None
+        and refresh_token_record.revoked
+        and refresh_token_record.revoked_reason == "logout"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token revoked",
         )
 
     if refresh_token_record is None:
@@ -352,6 +369,7 @@ def refresh_token(
         )
 
     refresh_token_record.revoked = True
+    refresh_token_record.revoked_reason = "rotation"
     db.commit()
 
     new_refresh_token = create_refresh_token()
@@ -401,6 +419,7 @@ def logout(
         )
 
     refresh_token_record.revoked = True
+    refresh_token_record.revoked_reason = "logout"
     db.commit()
 
     return {
