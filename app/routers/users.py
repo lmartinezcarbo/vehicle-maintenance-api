@@ -22,6 +22,7 @@ from app.core.security import (
     verify_refresh_token,
 )
 from app.core.rate_limit import limiter
+from app.services.email import send_email
 
 router = APIRouter(
     prefix="/users",
@@ -64,8 +65,16 @@ def create_user(
     db.commit()
     db.refresh(new_user)
 
-    return new_user
+    send_email(
+        to_email=new_user.email,
+        subject="Welcome to Vehicle Maintenance API",
+        html_content=f"""
+            <h1>Welcome, {new_user.name}!</h1>
+            <p>Your Vehicle Maintenance API account has been created successfully.</p>
+        """,
+    )
 
+    return new_user
 
 @router.get("/", response_model=list[UserResponse])
 def get_users(

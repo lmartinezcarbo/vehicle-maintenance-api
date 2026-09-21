@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Vehicle Maintenance API",
+    "subtitle": "Backend architecture",
+    "output": "vehicle-maintenance-api.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/lmartinezcarbo/vehicle-maintenance-api",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "b3e5992ed4e2bd2673cf36eb4ac0caf3954e7b49"
+    }
+  },
+  "layout": {
+    "mode": "grid"
+  },
+  "components": [
+    {
+      "id": "client",
+      "type": "external",
+      "label": "Client",
+      "sublabel": "HTTP / JSON",
+      "pos": [300, 0],
+      "size": [180, 60]
+    },
+    {
+      "id": "fastapi",
+      "type": "backend",
+      "label": "FastAPI Application",
+      "sublabel": "app/main.py",
+      "sources": [
+        {
+          "path": "app/main.py",
+          "label": "Application entry point"
+        }
+      ],
+      "pos": [300, 180],
+      "size": [180, 60]
+    },
+    {
+      "id": "security",
+      "type": "security",
+      "label": "Auth & Security",
+      "sublabel": "JWT · Roles · Ownership",
+      "sources": [
+        {
+          "path": "app/core/security.py",
+          "label": "Security"
+        },
+        {
+          "path": "app/core/dependencies.py",
+          "label": "Authorization dependencies"
+        }
+      ],
+      "pos": [50, 360],
+      "size": [180, 60]
+    },
+    {
+      "id": "routers",
+      "type": "backend",
+      "label": "API Routers",
+      "sublabel": "app/routers/",
+      "sources": [
+        {
+          "path": "app/routers/users.py",
+          "label": "User endpoints"
+        },
+        {
+          "path": "app/routers/vehicles.py",
+          "label": "Vehicle endpoints"
+        },
+        {
+          "path": "app/routers/maintenance_records.py",
+          "label": "Maintenance endpoints"
+        }
+      ],
+      "pos": [300, 360],
+      "size": [180, 60]
+    },
+    {
+      "id": "schemas",
+      "type": "backend",
+      "label": "Schemas & Query",
+      "sublabel": "Validation · Filters",
+      "sources": [
+        {
+          "path": "app/schemas/vehicle.py",
+          "label": "Vehicle schema"
+        },
+        {
+          "path": "app/schemas/maintenance_record.py",
+          "label": "Maintenance schema"
+        },
+        {
+          "path": "app/core/query_params.py",
+          "label": "Query parameters"
+        }
+      ],
+      "pos": [550, 360],
+      "size": [180, 60]
+    },
+    {
+      "id": "models",
+      "type": "backend",
+      "label": "SQLAlchemy Models",
+      "sublabel": "Relational domain model",
+      "sources": [
+        {
+          "path": "app/models/vehicle.py",
+          "label": "Vehicle model"
+        },
+        {
+          "path": "app/models/maintenance_record.py",
+          "label": "Maintenance model"
+        },
+        {
+          "path": "app/models/expense.py",
+          "label": "Expense model"
+        }
+      ],
+      "pos": [300, 540],
+      "size": [180, 60]
+    },
+    {
+      "id": "database",
+      "type": "backend",
+      "label": "Database Access",
+      "sublabel": "SQLAlchemy Session",
+      "sources": [
+        {
+          "path": "app/database.py",
+          "label": "Database configuration"
+        }
+      ],
+      "pos": [300, 720],
+      "size": [180, 60]
+    },
+    {
+      "id": "alembic",
+      "type": "backend",
+      "label": "Alembic",
+      "sublabel": "Database migrations",
+      "pos": [50, 900],
+      "size": [180, 60]
+    },
+    {
+      "id": "postgresql",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "Relational database",
+      "pos": [300, 900],
+      "size": [180, 60]
+    }
+  ],
+  "connections": [
+    {
+      "id": "client-fastapi",
+      "from": "client",
+      "to": "fastapi",
+      "label": "HTTP / JSON",
+      "variant": "emphasis",
+      "labelDy": 30
+    },
+    {
+      "id": "fastapi-routers",
+      "from": "fastapi",
+      "to": "routers",
+      "label": "Route handling",
+      "labelDy": 30
+    },
+    {
+      "id": "security-routers",
+      "from": "security",
+      "to": "routers",
+      "label": "Auth",
+      "variant": "security"
+    },
+    {
+      "id": "routers-schemas",
+      "from": "routers",
+      "to": "schemas",
+      "label": "Validate"
+    },
+    {
+      "id": "routers-models",
+      "from": "routers",
+      "to": "models",
+      "label": "CRUD",
+      "labelDy": 30
+    },
+    {
+      "id": "models-database",
+      "from": "models",
+      "to": "database",
+      "label": "SQLAlchemy",
+      "labelDy": 30
+    },
+    {
+      "id": "database-postgresql",
+      "from": "database",
+      "to": "postgresql",
+      "label": "SQL",
+      "labelDy": 30
+    },
+    {
+      "id": "alembic-postgresql",
+      "from": "alembic",
+      "to": "postgresql",
+      "label": "Migrations",
+      "variant": "dashed"
+    }
+  ]
+}

@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     secret_key: str
     algorithm: str = "HS256"
     cors_origins: str = "http://localhost:3000"
+    brevo_api_key: str
+    email_from: str
 
     model_config = SettingsConfigDict(
         env_file=".env",
