@@ -26,3 +26,17 @@ class UserPut(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
+
+class EmailVerificationRequest(BaseModel):
+    email: EmailStr
+    code: str
+
+class TwoFactorVerificationRequest(BaseModel):
+    email: EmailStr
+    code: str
+
+class ResendTwoFactorRequest(BaseModel):
+    email: EmailStr
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr

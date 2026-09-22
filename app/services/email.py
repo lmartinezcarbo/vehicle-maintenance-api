@@ -1,4 +1,5 @@
 import brevo
+import logging
 
 from app.core.config import settings
 
@@ -7,6 +8,7 @@ client = brevo.Brevo(
     api_key=settings.brevo_api_key
 )
 
+logger = logging.getLogger(__name__)
 
 def send_email(
     to_email: str,
@@ -21,9 +23,13 @@ def send_email(
         email=to_email
     )
 
-    client.transactional_emails.send_transac_email(
-        sender=sender,
-        to=[recipient],
-        subject=subject,
-        html_content=html_content,
-    )
+    try:
+        client.transactional_emails.send_transac_email(
+            sender=sender,
+            to=[recipient],
+            subject=subject,
+            html_content=html_content,
+        )
+    except Exception:
+        logger.exception("Failed to send email to %s", to_email)
+        raise

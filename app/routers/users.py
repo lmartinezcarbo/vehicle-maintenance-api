@@ -7,28 +7,41 @@ from uuid import uuid4
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from app.core.security import hash_password, verify_password, create_access_token
-from app.schemas.user import UserCreate, UserResponse, UserUpdate, UserPut, RefreshTokenRequest
+import logging
+
 from app.database import get_db
 from app.models.user import User
 from app.core.dependencies import get_access_user
 from app.core.query_params import get_sort_params, SortOrder
 from app.models.refresh_token import RefreshToken
+from app.core.rate_limit import limiter
+from app.services.email import send_email
+from app.services.one_time_code import create_one_time_code, verify_one_time_code
+from app.schemas.user import (
+    UserCreate, UserResponse,
+    UserUpdate, UserPut,
+    RefreshTokenRequest,
+    EmailVerificationRequest,
+    TwoFactorVerificationRequest,
+    ResendTwoFactorRequest,
+    ResendVerificationRequest,
+)
 from app.core.security import (
     create_access_token,
     create_refresh_token,
     hash_refresh_token,
     verify_password,
     verify_refresh_token,
+    hash_password,
 )
-from app.core.rate_limit import limiter
-from app.services.email import send_email
+
 
 router = APIRouter(
     prefix="/users",
     tags=["Users"],
 )
 
+logger = logging.getLogger(__name__)
 
 class UserSearchField(str, Enum):
     name = "name"
@@ -65,14 +78,29 @@ def create_user(
     db.commit()
     db.refresh(new_user)
 
-    send_email(
-        to_email=new_user.email,
-        subject="Welcome to Vehicle Maintenance API",
-        html_content=f"""
-            <h1>Welcome, {new_user.name}!</h1>
-            <p>Your Vehicle Maintenance API account has been created successfully.</p>
-        """,
-    )
+    verification_code = create_one_time_code(
+    db=db,
+    user_id=new_user.id,
+    purpose="email_verification",
+)
+
+    try:
+        send_email(
+            to_email=new_user.email,
+            subject="Verify your email",
+            html_content=f"""
+                <h1>Verify your email</h1>
+                <p>Hello {new_user.name},</p>
+                <p>Your verification code is:</p>
+                <h2>{verification_code}</h2>
+                <p>This code expires in 10 minutes.</p>
+            """,
+        )
+    except Exception:
+        logger.exception(
+            "User created successfully, but verification email could not be sent to %s",
+            new_user.email,
+        )
 
     return new_user
 
@@ -298,28 +326,43 @@ def login(
             detail="Invalid email or password"
         )
 
-    access_token = create_access_token({
-        "sub": str(user.id),
-        "role": user.role,
-    })
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email must be verified before login"
+        )
 
-    refresh_token = create_refresh_token()
-    refresh_token_hash = hash_refresh_token(refresh_token)
-
-    refresh_token_record = RefreshToken(
+    two_factor_code = create_one_time_code(
+        db=db,
         user_id=user.id,
-        token_hash=refresh_token_hash,
-        family_id=uuid4(),
-        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        purpose="two_factor",
     )
 
-    db.add(refresh_token_record)
-    db.commit()
+    try:
+        send_email(
+            to_email=user.email,
+            subject="Your 2FA verification code",
+            html_content=f"""
+                <h1>Two-factor authentication</h1>
+                <p>Hello {user.name},</p>
+                <p>Your verification code is:</p>
+                <h2>{two_factor_code}</h2>
+                <p>This code expires in 10 minutes.</p>
+            """,
+        )
+    except Exception:
+        logger.exception(
+            "2FA code generated, but email could not be sent to %s",
+            user.email,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to send verification code",
+        )
 
     return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "message": "Two-factor authentication code sent",
+        "requires_2fa": True,
     }
 
 @router.post("/refresh")
@@ -446,4 +489,212 @@ def logout(
 
     return {
         "message": "Logout successful"
+    }
+
+@router.post("/verify-email")
+@limiter.limit("5/minute")
+def verify_email(
+    request: Request,
+    data: EmailVerificationRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Verify a user's email address using a one-time verification code.
+    """
+
+    user = db.query(User).filter(User.email == data.email).first()
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid verification request",
+        )
+
+    if user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is already verified",
+        )
+
+    valid = verify_one_time_code(
+        db=db,
+        user_id=user.id,
+        purpose="email_verification",
+        code=data.code,
+    )
+
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification code",
+        )
+
+    user.email_verified = True
+    db.commit()
+
+    return {
+        "message": "Email verified successfully"
+    }
+
+@router.post("/verify-2fa")
+@limiter.limit("5/minute")
+def verify_2fa(
+    request: Request,
+    data: TwoFactorVerificationRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Verify a two-factor authentication code and issue access tokens.
+    """
+
+    user = db.query(User).filter(User.email == data.email).first()
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid verification request",
+        )
+
+    valid = verify_one_time_code(
+        db=db,
+        user_id=user.id,
+        purpose="two_factor",
+        code=data.code,
+    )
+
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification code",
+        )
+
+    access_token = create_access_token({
+        "sub": str(user.id),
+    })
+
+    refresh_token = create_refresh_token()
+    refresh_token_hash = hash_refresh_token(refresh_token)
+
+    refresh_token_record = RefreshToken(
+        user_id=user.id,
+        token_hash=refresh_token_hash,
+        family_id=uuid4(),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    db.add(refresh_token_record)
+    db.commit()
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }
+
+@router.post("/resend-2fa")
+@limiter.limit("3/minute")
+def resend_2fa(
+    request: Request,
+    data: ResendTwoFactorRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Generate and send a new two-factor authentication code.
+    """
+
+    user = db.query(User).filter(User.email == data.email).first()
+
+    if user is None or not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unable to resend verification code",
+        )
+
+    two_factor_code = create_one_time_code(
+        db=db,
+        user_id=user.id,
+        purpose="two_factor",
+    )
+
+    try:
+        send_email(
+            to_email=user.email,
+            subject="Your new 2FA verification code",
+            html_content=f"""
+                <h1>Two-factor authentication</h1>
+                <p>Hello {user.name},</p>
+                <p>Your new verification code is:</p>
+                <h2>{two_factor_code}</h2>
+                <p>This code expires in 10 minutes.</p>
+            """,
+        )
+    except Exception:
+        logger.exception(
+            "2FA resend email could not be sent to %s",
+            user.email,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to send verification code",
+        )
+
+    return {
+        "message": "Two-factor authentication code sent",
+        "requires_2fa": True,
+    }
+
+@router.post("/resend-verification")
+@limiter.limit("3/minute")
+def resend_verification(
+    request: Request,
+    data: ResendVerificationRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Generate and send a new email verification code.
+    """
+
+    user = db.query(User).filter(User.email == data.email).first()
+
+    if user is None or user.email_verified:
+        return {
+            "message": (
+                "If the account exists and is not verified, "
+                "a verification code has been sent"
+            )
+        }
+
+    verification_code = create_one_time_code(
+        db=db,
+        user_id=user.id,
+        purpose="email_verification",
+    )
+
+    try:
+        send_email(
+            to_email=user.email,
+            subject="Verify your email",
+            html_content=f"""
+                <h1>Verify your email</h1>
+                <p>Hello {user.name},</p>
+                <p>Your new verification code is:</p>
+                <h2>{verification_code}</h2>
+                <p>This code expires in 10 minutes.</p>
+            """,
+        )
+    except Exception:
+        logger.exception(
+            "Verification email could not be sent to %s",
+            user.email,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to send verification code",
+        )
+
+    return {
+        "message": (
+            "If the account exists and is not verified, "
+            "a verification code has been sent"
+        )
     }

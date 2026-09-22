@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import Boolean, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.models.vehicle import Vehicle
     from app.models.refresh_token import RefreshToken
+    from app.models.one_time_code import OneTimeCode
 
 
 class User(Base):
@@ -47,4 +48,15 @@ class User(Base):
 
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
         back_populates="user"
+    )
+
+    one_time_codes: Mapped[list["OneTimeCode"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    email_verified: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
     )
