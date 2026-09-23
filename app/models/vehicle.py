@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, func, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -35,6 +35,12 @@ class Vehicle(Base):
     )
 
     mileage: Mapped[int] = mapped_column(nullable=False)
+
+    verified: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

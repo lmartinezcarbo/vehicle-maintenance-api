@@ -21,9 +21,10 @@ from app.models.maintenance_part import MaintenancePart
 from app.models.maintenance_record import MaintenanceRecord
 from app.models.part import Part
 from app.models.vehicle import Vehicle
-from app.core.dependencies import get_access_user
+from app.core.dependencies import get_access_user, require_mechanic
 from app.core.query_params import get_sort_params, SortOrder
 from app.core.rate_limit import limiter
+from app.models import User
 
 
 class MaintenancePartSearchField(str, Enum):
@@ -43,7 +44,7 @@ def create_maintenance_part(
     request: Request,
     maintenance_part: MaintenancePartCreate,
     db: Session = Depends(get_db),
-    access=Depends(get_access_user),
+    current_user=Depends(require_mechanic),
 ):
     """
     Create a new maintenance part record.
@@ -68,11 +69,22 @@ def create_maintenance_part(
         .first()
     )
 
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+    if not vehicle.verified:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this maintenance record"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vehicle must be verified before adding maintenance parts"
         )
+
+    if current_user.role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only add parts to customer maintenance records"
+            )
 
     part = (
         db.query(Part)
@@ -138,10 +150,17 @@ def get_maintenance_parts(
     )
 
     # Ownership / access filter
-    if not access["is_admin"]:
+    if access["user"].role == "customer":
         query = query.filter(
             Vehicle.user_id == access["user"].id
         )
+
+    elif access["user"].role == "mechanic":
+        query = query.join(User).filter(
+            User.role == "customer"
+        )
+
+# admin → no filter
 
     # Exact filters
     if maintenance_record_id is not None:
@@ -232,11 +251,25 @@ def get_maintenance_part_by_id(
         .first()
     )
 
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this maintenance part"
-        )
+    if access["user"].role == "customer":
+        if vehicle.user_id != access["user"].id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this maintenance part"
+            )
+
+    elif access["user"].role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this maintenance part"
+            )
+
+# admin → can access any maintenance part
 
     return maintenance_part
 
@@ -282,11 +315,24 @@ def update_maintenance_part(
         .first()
     )
 
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+    if access["user"].role == "customer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to update this maintenance part"
+            detail="Customers cannot modify maintenance parts"
         )
+
+    if access["user"].role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only modify customer maintenance parts"
+            )
+
+# admin → can modify any maintenance part
 
     update_data = maintenance_part.model_dump(exclude_unset=True)
 
@@ -328,11 +374,24 @@ def replace_maintenance_part(
         .first()
     )
 
-    if not access["is_admin"] and record.vehicle.user_id != access["user"].id:
+    if access["user"].role == "customer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to replace this maintenance part"
+            detail="Customers cannot modify maintenance parts"
         )
+
+    if access["user"].role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == record.vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only modify customer maintenance parts"
+            )
+
+# admin → can modify any maintenance part
 
     maintenance_part_db.quantity = part_data.quantity
     maintenance_part_db.unit_cost = part_data.unit_cost
@@ -379,11 +438,24 @@ def delete_maintenance_part(
         .first()
     )
 
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+    if access["user"].role == "customer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to delete this maintenance part"
+            detail="Customers cannot delete maintenance parts"
         )
+
+    if access["user"].role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only delete customer maintenance parts"
+            )
+
+# admin → can delete any maintenance part
 
     db.delete(maintenance_part)
     db.commit()

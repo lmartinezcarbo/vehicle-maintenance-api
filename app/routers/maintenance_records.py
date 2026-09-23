@@ -12,9 +12,10 @@ from app.schemas import (
 )
 from app.models.maintenance_record import MaintenanceRecord
 from app.models.vehicle import Vehicle
-from app.core.dependencies import get_access_user
+from app.core.dependencies import get_access_user, require_mechanic
 from app.core.query_params import get_sort_params, SortOrder
 from app.core.rate_limit import limiter
+from app.models import User
 
 
 class MaintenanceSearchField(str, Enum):
@@ -34,7 +35,7 @@ def create_maintenance_record(
     request: Request,
     maintenance: MaintenanceRecordCreate,
     db: Session = Depends(get_db),
-    access=Depends(get_access_user),
+    current_user=Depends(require_mechanic),
 ):
     """
     Create a new maintenance record for a vehicle.
@@ -54,11 +55,22 @@ def create_maintenance_record(
             detail="Not authorized to access this vehicle"
         )
 
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+    if not vehicle.verified:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this vehicle"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vehicle must be verified before creating maintenance records"
         )
+
+    if current_user.role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only create maintenance records for customer vehicles"
+            )
 
     new_maintenance = MaintenanceRecord(
         vehicle_id=maintenance.vehicle_id,
@@ -105,10 +117,17 @@ def get_maintenance_records(
     )
 
     # Ownership / access filter
-    if not access["is_admin"]:
+    if access["user"].role == "customer":
         query = query.filter(
             Vehicle.user_id == access["user"].id
         )
+
+    elif access["user"].role == "mechanic":
+        query = query.join(User).filter(
+            User.role == "customer"
+        )
+
+# admin → no filter
 
     # Exact filters
     if vehicle_id is not None:
@@ -195,11 +214,25 @@ def get_maintenance_record(
         .first()
     )
 
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this maintenance record"
-        )
+    if access["user"].role == "customer":
+        if vehicle.user_id != access["user"].id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this maintenance record"
+            )
+
+    elif access["user"].role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this maintenance record"
+            )
+
+# admin → puede acceder a cualquier registro
 
     return maintenance_record
 
@@ -240,11 +273,22 @@ def update_maintenance_record(
         .first()
     )
 
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+    if access["user"].role == "customer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to update this maintenance record"
+            detail="Customers cannot modify maintenance records"
         )
+
+    if access["user"].role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only modify customer maintenance records"
+            )
 
     update_data = maintenance_data.model_dump(exclude_unset=True)
 
@@ -284,11 +328,22 @@ def replace_maintenance_record(
         .first()
     )
 
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+    if access["user"].role == "customer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to replace this maintenance record"
+            detail="Customers cannot modify maintenance records"
         )
+
+    if access["user"].role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only modify customer maintenance records"
+            )
 
     record_db.service_type = record_data.service_type
     record_db.description = record_data.description
@@ -335,11 +390,24 @@ def delete_maintenance_record(
         .first()
     )
 
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+    if access["user"].role == "customer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to delete this maintenance record"
+            detail="Customers cannot delete maintenance records"
         )
+
+    if access["user"].role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only delete customer maintenance records"
+            )
+
+# admin → puede eliminar cualquier registro
 
     db.delete(maintenance_record)
     db.commit()

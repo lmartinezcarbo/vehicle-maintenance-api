@@ -19,6 +19,7 @@ class VehicleResponse(BaseModel):
     year: int
     vin: str
     mileage: int
+    verified: bool
     created_at: datetime
 
 class VehicleUpdate(BaseModel):

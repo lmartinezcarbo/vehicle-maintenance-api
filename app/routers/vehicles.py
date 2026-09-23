@@ -7,7 +7,7 @@ from app.database import get_db
 from app.schemas import VehicleCreate, VehicleResponse, VehicleUpdate, VehiclePut
 from app.models import User
 from app.models.vehicle import Vehicle
-from app.core.dependencies import get_access_user
+from app.core.dependencies import get_access_user, require_mechanic
 from app.core.query_filters import filter_by_user_access
 from app.core.query_params import get_sort_params, SortOrder
 from app.core.rate_limit import limiter
@@ -42,11 +42,15 @@ def create_vehicle(
     - Regular users can only create vehicles for themselves
     - Admins can create vehicles for any user
     """
-    if access["is_admin"]:
+    if access["user"].role == "customer":
+        user_id = access["user"].id
+        verified = False
+
+    elif access["user"].role in ("mechanic", "admin"):
         if vehicle.user_id is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Admin must specify a user_id"
+                detail="user_id is required"
             )
 
         user_id = vehicle.user_id
@@ -58,8 +62,14 @@ def create_vehicle(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found"
             )
-    else:
-        user_id = access["user"].id
+
+        if access["user"].role == "mechanic" and user.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only create vehicles for customers"
+            )
+
+        verified = True
 
     new_vehicle = Vehicle(
         user_id=user_id,
@@ -68,6 +78,7 @@ def create_vehicle(
         year=vehicle.year,
         vin=vehicle.vin,
         mileage=vehicle.mileage,
+        verified=verified,
     )
 
     db.add(new_vehicle)
@@ -99,11 +110,17 @@ def get_vehicles(
 
     query = db.query(Vehicle)
 
-    query = filter_by_user_access(
-        query,
-        access["user"],
-        Vehicle.user_id
-    )
+    if access["user"].role == "customer":
+        query = query.filter(
+            Vehicle.user_id == access["user"].id
+        )
+
+    elif access["user"].role == "mechanic":
+        query = query.join(User).filter(
+            User.role == "customer"
+        )
+
+# admin → no filtro, puede ver todos
 
     # Exact filters
     if make is not None:
@@ -181,14 +198,67 @@ def get_vehicle(
             detail="Not authorized to access this vehicle"
         )
 
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this vehicle"
-        )
+    if access["user"].role == "customer":
+        if vehicle.user_id != access["user"].id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this vehicle"
+            )
+
+    elif access["user"].role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this vehicle"
+            )
+
+# admin → puede acceder a cualquier vehículo
 
     return vehicle
 
+@router.patch("/{vehicle_id}/verify", response_model=VehicleResponse)
+@limiter.limit("20/minute")
+def verify_vehicle(
+    request: Request,
+    vehicle_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_mechanic),
+):
+    vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
+
+    if vehicle is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Vehicle not found"
+        )
+
+    if vehicle.verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vehicle is already verified"
+        )
+
+    if current_user.role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only verify customer vehicles"
+            )
+
+    vehicle.verified = True
+
+    db.commit()
+    db.refresh(vehicle)
+
+    return vehicle
 
 @router.patch("/{vehicle_id}", response_model=VehicleResponse)
 @limiter.limit("20/minute")
@@ -212,11 +282,22 @@ def update_vehicle(
             detail="Not authorized to update this vehicle"
         )
 
-    if not access["is_admin"] and vehicle_db.user_id != access["user"].id:
+    if access["user"].role == "customer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to update this vehicle"
+            detail="Customers cannot modify vehicle information"
         )
+
+    if access["user"].role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle_db.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only modify customer vehicles"
+            )
 
     update_data = vehicle.model_dump(exclude_unset=True)
 
@@ -246,11 +327,22 @@ def replace_vehicle(
             detail="Not authorized to replace this vehicle"
         )
 
-    if not access["is_admin"] and vehicle_db.user_id != access["user"].id:
+    if access["user"].role == "customer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to replace this vehicle"
+            detail="Customers cannot modify vehicle information"
         )
+
+    if access["user"].role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle_db.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only modify customer vehicles"
+            )
 
     vehicle_db.make = vehicle_data.make
     vehicle_db.model = vehicle_data.model
@@ -285,11 +377,26 @@ def delete_vehicle(
             detail="Not authorized to delete this vehicle"
         )
 
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+    if access["user"].role == "customer":
+        if vehicle.user_id != access["user"].id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to delete this vehicle"
+            )
+
+        if vehicle.verified:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Customers can only delete unverified vehicles"
+            )
+
+    elif access["user"].role == "mechanic":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to delete this vehicle"
+            detail="Mechanics cannot delete vehicles"
         )
+
+# admin → puede eliminar cualquier vehículo
 
     db.delete(vehicle)
     db.commit()

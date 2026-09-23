@@ -8,10 +8,10 @@ from app.schemas import ExpenseCreate, ExpenseResponse, ExpenseUpdate, ExpensePu
 from app.models.expense import Expense
 from app.models.vehicle import Vehicle
 from app.models.maintenance_record import MaintenanceRecord
-from app.core.dependencies import get_access_user
+from app.core.dependencies import get_access_user, require_mechanic
 from app.core.query_params import get_sort_params, SortOrder
 from app.core.rate_limit import limiter
-
+from app.models import User
 
 class ExpenseSearchField(str, Enum):
     category = "category"
@@ -30,7 +30,7 @@ def create_expense(
     request: Request,
     expense: ExpenseCreate,
     db: Session = Depends(get_db),
-    access=Depends(get_access_user),
+    current_user=Depends(require_mechanic),
 ):
     """
     Create a new expense for a vehicle.
@@ -52,12 +52,25 @@ def create_expense(
             detail="Not authorized to create an expense for this vehicle",
         )
 
-    # Authorization: regular users can only use their own vehicle
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+    if not vehicle.verified:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to create an expense for this vehicle",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vehicle must be verified before creating expenses",
         )
+
+    # Authorization: regular users can only use their own vehicle
+    if current_user.role == "mechanic":
+        owner = (
+            db.query(User)
+            .filter(User.id == vehicle.user_id)
+            .first()
+        )
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only create expenses for customer vehicles",
+            )
 
     # Validate maintenance record if provided
     if expense.maintenance_record_id is not None:
@@ -130,10 +143,17 @@ def get_expenses(
     # ---------------------------------------------------------
     # This is applied BEFORE returning any results.
     # Regular users only see expenses belonging to their vehicles.
-    if not access["is_admin"]:
+    if access["user"].role == "customer":
         query = query.filter(
             Vehicle.user_id == access["user"].id
         )
+
+    elif access["user"].role == "mechanic":
+        query = query.join(User).filter(
+            User.role == "customer"
+        )
+
+# admin → no filter
 
     # ---------------------------------------------------------
     # EXACT FILTERS
@@ -233,11 +253,27 @@ def get_expense(
         )
 
     # Authorization
-    if not access["is_admin"] and expense.vehicle.user_id != access["user"].id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this expense",
+    if access["user"].role == "customer":
+        if expense.vehicle.user_id != access["user"].id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this expense",
+            )
+
+    elif access["user"].role == "mechanic":
+        owner = (
+            db.query(User)
+            .filter(User.id == expense.vehicle.user_id)
+            .first()
         )
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this expense",
+            )
+
+# admin → can access any expense
 
     return expense
 
@@ -276,11 +312,26 @@ def update_expense(
     # AUTHORIZATION OF CURRENT EXPENSE
     # ---------------------------------------------------------
 
-    if not access["is_admin"] and expense_db.vehicle.user_id != access["user"].id:
+    if access["user"].role == "customer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to update this expense",
+            detail="Customers cannot modify expenses",
         )
+
+    if access["user"].role == "mechanic":
+        owner = (
+            db.query(User)
+            .filter(User.id == expense_db.vehicle.user_id)
+            .first()
+        )
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only modify customer expenses",
+            )
+
+# admin → can modify any expense
 
     update_data = expense.model_dump(exclude_unset=True)
 
@@ -385,11 +436,26 @@ def replace_expense(
         .first()
     )
 
-    if not access["is_admin"] and vehicle.user_id != access["user"].id:
+    if access["user"].role == "customer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to replace this expense"
+            detail="Customers cannot modify expenses"
         )
+
+    if access["user"].role == "mechanic":
+        owner = (
+            db.query(User)
+            .filter(User.id == vehicle.user_id)
+            .first()
+        )
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only modify customer expenses"
+            )
+
+# admin → can modify any expense
 
     expense_db.category = expense_data.category
     expense_db.amount = expense_data.amount
@@ -431,11 +497,26 @@ def delete_expense(
         )
 
     # Authorization
-    if not access["is_admin"] and expense.vehicle.user_id != access["user"].id:
+    if access["user"].role == "customer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to delete this expense",
+            detail="Customers cannot delete expenses",
         )
+
+    if access["user"].role == "mechanic":
+        owner = (
+            db.query(User)
+            .filter(User.id == expense.vehicle.user_id)
+            .first()
+        )
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only delete customer expenses",
+            )
+
+# admin → can delete any expense
 
     db.delete(expense)
     db.commit()

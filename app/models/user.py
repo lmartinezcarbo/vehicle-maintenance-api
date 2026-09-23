@@ -33,7 +33,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(
         String,
         nullable=False,
-        default="user",
+        default="customer",
     )
 
     created_at: Mapped[datetime] = mapped_column(

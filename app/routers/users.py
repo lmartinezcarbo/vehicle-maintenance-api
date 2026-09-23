@@ -11,7 +11,7 @@ import logging
 
 from app.database import get_db
 from app.models.user import User
-from app.core.dependencies import get_access_user
+from app.core.dependencies import get_access_user, require_admin, get_current_user
 from app.core.query_params import get_sort_params, SortOrder
 from app.models.refresh_token import RefreshToken
 from app.core.rate_limit import limiter
@@ -25,6 +25,10 @@ from app.schemas.user import (
     TwoFactorVerificationRequest,
     ResendTwoFactorRequest,
     ResendVerificationRequest,
+    UserRoleUpdate,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+    ChangePasswordRequest,
 )
 from app.core.security import (
     create_access_token,
@@ -46,6 +50,11 @@ logger = logging.getLogger(__name__)
 class UserSearchField(str, Enum):
     name = "name"
     email = "email"
+
+class UserRole(str, Enum):
+    customer = "customer"
+    mechanic = "mechanic"
+    admin = "admin"
 
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
@@ -169,6 +178,34 @@ def get_current_user_profile(
 ):
     return access["user"]
 
+@router.patch("/{user_id}/role", response_model=UserResponse)
+def update_user_role(
+    role_data: UserRoleUpdate,
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    if user.id == current_user.id and role_data.role != UserRole.admin.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Admin cannot remove their own admin role"
+        )
+
+    user.role = role_data.role
+
+    db.commit()
+    db.refresh(user)
+
+    return user
+
 @router.get("/{user_id}", response_model=UserResponse)
 def get_user(
     user_id: int,
@@ -205,10 +242,10 @@ def update_user(
     access = Depends(get_access_user)
 ):
     """
-    Update a user.
+    Update a user's profile.
     - Admins can update any user
     - Regular users can only update their own profile
-    - Password is automatically hashed if provided
+    - Password changes are handled by a dedicated endpoint
     """
     user_db = db.query(User).filter(User.id == user_id).first()
 
@@ -226,11 +263,6 @@ def update_user(
 
     update_data = user.model_dump(exclude_unset=True)
 
-    if "password" in update_data:
-        update_data["password_hash"] = hash_password(
-            update_data.pop("password")
-        )
-
     for field, value in update_data.items():
         setattr(user_db, field, value)
 
@@ -246,6 +278,14 @@ def replace_user(
     db: Session = Depends(get_db),
     access=Depends(get_access_user),
 ):
+
+    """
+    Replace a user's profile.
+    - Admins can replace any user
+    - Regular users can only replace their own profile
+    - Password changes are handled by a dedicated endpoint
+    """
+    
     user_db = db.query(User).filter(User.id == user_id).first()
 
     if user_db is None:
@@ -262,7 +302,6 @@ def replace_user(
 
     user_db.name = user_data.name
     user_db.email = user_data.email
-    user_db.password_hash = hash_password(user_data.password)
 
     db.commit()
     db.refresh(user_db)
@@ -491,6 +530,113 @@ def logout(
         "message": "Logout successful"
     }
 
+@router.post("/forgot-password")
+@limiter.limit("3/minute")
+def forgot_password(
+    request: Request,
+    data: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Generate and send a password reset code.
+    """
+
+    user = db.query(User).filter(User.email == data.email).first()
+
+    if user is None:
+        return {
+            "message": (
+                "If the account exists, "
+                "a password reset code has been sent"
+            )
+        }
+
+    reset_code = create_one_time_code(
+        db=db,
+        user_id=user.id,
+        purpose="password_reset",
+    )
+
+    try:
+        send_email(
+            to_email=user.email,
+            subject="Reset your password",
+            html_content=f"""
+                <h1>Password reset</h1>
+                <p>Hello {user.name},</p>
+                <p>Your password reset code is:</p>
+                <h2>{reset_code}</h2>
+                <p>This code expires in 10 minutes.</p>
+            """,
+        )
+    except Exception:
+        logger.exception(
+            "Password reset email could not be sent to %s",
+            user.email,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to send password reset code",
+        )
+
+    return {
+        "message": (
+            "If the account exists, "
+            "a password reset code has been sent"
+        )
+    }
+
+@router.post("/reset-password")
+@limiter.limit("5/minute")
+def reset_password(
+    request: Request,
+    data: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Reset a user's password using a one-time code.
+    """
+
+    user = db.query(User).filter(User.email == data.email).first()
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid password reset request",
+        )
+
+    code_valid = verify_one_time_code(
+        db=db,
+        user_id=user.id,
+        purpose="password_reset",
+        code=data.code,
+    )
+
+    if not code_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired password reset code",
+        )
+
+    user.password_hash = hash_password(data.new_password)
+
+    db.query(RefreshToken).filter(
+        RefreshToken.user_id == user.id,
+        RefreshToken.revoked.is_(False),
+    ).update(
+        {
+            RefreshToken.revoked: True,
+            RefreshToken.revoked_reason: "password_reset",
+        },
+        synchronize_session=False,
+    )
+
+    db.commit()
+
+    return {
+        "message": "Password reset successful"
+    }
+
 @router.post("/verify-email")
 @limiter.limit("5/minute")
 def verify_email(
@@ -697,4 +843,52 @@ def resend_verification(
             "If the account exists and is not verified, "
             "a verification code has been sent"
         )
+    }
+
+@router.patch("/me/password")
+@limiter.limit("5/minute")
+def change_password(
+    request: Request,
+    data: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Change the authenticated user's password.
+    """
+
+    if not verify_password(
+        data.current_password,
+        current_user.password_hash,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    if data.current_password == data.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from current password",
+        )
+
+    current_user.password_hash = hash_password(
+        data.new_password
+    )
+
+    db.query(RefreshToken).filter(
+        RefreshToken.user_id == current_user.id,
+        RefreshToken.revoked.is_(False),
+    ).update(
+        {
+            RefreshToken.revoked: True,
+            RefreshToken.revoked_reason: "password_change",
+        },
+        synchronize_session=False,
+    )
+
+    db.commit()
+
+    return {
+        "message": "Password changed successfully"
     }

@@ -195,15 +195,6 @@ def replace_part(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-
-    part_db = db.query(Part).filter(Part.id == part_id).first()
-
-    if part_db is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Part not found"
-        )
-
     part_db = db.query(Part).filter(Part.id == part_id).first()
 
     if part_db is None:
