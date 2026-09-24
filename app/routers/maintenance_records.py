@@ -1,6 +1,7 @@
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -71,6 +72,22 @@ def create_maintenance_record(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Mechanics can only create maintenance records for customer vehicles"
             )
+
+    last_maintenance = (
+        db.query(MaintenanceRecord)
+        .filter(
+            MaintenanceRecord.vehicle_id == maintenance.vehicle_id,
+            MaintenanceRecord.service_date < maintenance.service_date,
+        )
+        .order_by(desc(MaintenanceRecord.service_date))
+        .first()
+    )
+
+    if last_maintenance and maintenance.mileage < last_maintenance.mileage:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Maintenance mileage cannot be lower than the previous maintenance mileage"
+        )
 
     new_maintenance = MaintenanceRecord(
         vehicle_id=maintenance.vehicle_id,
@@ -292,6 +309,33 @@ def update_maintenance_record(
 
     update_data = maintenance_data.model_dump(exclude_unset=True)
 
+    effective_service_date = update_data.get(
+        "service_date",
+        maintenance_record_db.service_date,
+    )
+
+    effective_mileage = update_data.get(
+        "mileage",
+        maintenance_record_db.mileage,
+    )
+
+    previous_maintenance = (
+        db.query(MaintenanceRecord)
+        .filter(
+            MaintenanceRecord.vehicle_id == maintenance_record_db.vehicle_id,
+            MaintenanceRecord.id != maintenance_record_db.id,
+            MaintenanceRecord.service_date < effective_service_date,
+        )
+        .order_by(desc(MaintenanceRecord.service_date))
+        .first()
+    )
+
+    if previous_maintenance and effective_mileage < previous_maintenance.mileage:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Maintenance mileage cannot be lower than the previous maintenance mileage"
+        )
+
     for field, value in update_data.items():
         setattr(maintenance_record_db, field, value)
 
@@ -344,6 +388,23 @@ def replace_maintenance_record(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Mechanics can only modify customer maintenance records"
             )
+
+    previous_maintenance = (
+        db.query(MaintenanceRecord)
+        .filter(
+            MaintenanceRecord.vehicle_id == record_db.vehicle_id,
+            MaintenanceRecord.id != record_db.id,
+            MaintenanceRecord.service_date < record_data.service_date,
+        )
+        .order_by(desc(MaintenanceRecord.service_date))
+        .first()
+    )
+
+    if previous_maintenance and record_data.mileage < previous_maintenance.mileage:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Maintenance mileage cannot be lower than the previous maintenance mileage"
+        )
 
     record_db.service_type = record_data.service_type
     record_db.description = record_data.description
