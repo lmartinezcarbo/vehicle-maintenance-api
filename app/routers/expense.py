@@ -95,6 +95,15 @@ def create_expense(
                 detail="Maintenance record does not belong to this vehicle",
             )
 
+        # The total is frozen once the record leaves "in_progress": moving it
+        # after a checkout was opened would make the amount the customer saw
+        # differ from the amount the webhook checks.
+        if maintenance_record.status != "in_progress":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only records in progress can be modified",
+            )
+
     new_expense = Expense(
         vehicle_id=expense.vehicle_id,
         maintenance_record_id=expense.maintenance_record_id,

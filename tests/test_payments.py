@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.core.security import hash_password
 from app.main import app
-from app.models import Payment, User
+from app.models import MaintenanceRecord, Payment, User
 
 client = TestClient(app)
 
@@ -197,3 +197,51 @@ def test_another_customer_cannot_pay_someone_elses_record(
     )
 
     assert response.status_code == 403
+
+
+def test_a_completed_record_cannot_be_paid(ready_record, owner_token, db):
+    ready_record.status = "completed"
+    db.commit()
+
+    response = client.post(
+        "/payments/",
+        json={"maintenance_record_id": ready_record.id},
+        headers=auth(owner_token),
+    )
+
+    assert response.status_code == 400
+    assert payments_for(db, ready_record.id) == 0
+
+
+def test_a_completed_record_cannot_be_deleted(ready_record, owner_token, db):
+    ready_record.status = "completed"
+    db.commit()
+
+    response = client.delete(
+        f"/maintenance-records/{ready_record.id}",
+        headers=auth(owner_token),
+    )
+
+    assert response.status_code == 400
+    assert db.query(MaintenanceRecord).filter(
+        MaintenanceRecord.id == ready_record.id
+    ).count() == 1
+
+
+def test_an_expense_cannot_change_a_frozen_price(ready_record, admin_token):
+    """The total is frozen at "ready": an expense here would break the
+    amount check the webhook runs against what Stripe charged."""
+    response = client.post(
+        "/expenses/",
+        json={
+            "vehicle_id": ready_record.vehicle_id,
+            "maintenance_record_id": ready_record.id,
+            "category": "parts",
+            "amount": "10.00",
+            "expense_date": "2026-10-04T00:00:00Z",
+        },
+        headers=auth(admin_token),
+    )
+
+    assert response.status_code == 400
+    assert "Only records in progress can be modified" in response.text

@@ -264,6 +264,9 @@ async def stripe_webhook(
             return {"received": True}
         payment.status = "paid"
         payment.paid_at = datetime.now(timezone.utc)
+        # The job is finished: the record is closed for edits and can never
+        # be charged again, so its lifecycle ends with the payment.
+        payment.maintenance_record.status = "completed"
         if session.get("payment_intent"):
             payment.stripe_payment_intent_id = session["payment_intent"]
     elif event_type == "checkout.session.async_payment_failed":

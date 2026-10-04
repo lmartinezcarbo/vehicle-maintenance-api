@@ -85,7 +85,7 @@ class MaintenanceRecord(Base):
         name="check_labor_cost_non_negative",
     ),
     CheckConstraint(
-        "status IN ('in_progress', 'ready')",
+        "status IN ('in_progress', 'ready', 'completed')",
         name="check_maintenance_status",
     ),
     UniqueConstraint(

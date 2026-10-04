@@ -432,10 +432,10 @@ def update_maintenance_record(
             detail="Not authorized to update this maintenance record"
         )
 
-    if maintenance_record_db.status == "ready":
+    if maintenance_record_db.status != "in_progress":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ready maintenance records cannot be modified",
+            detail="Only records in progress can be modified",
         )
 
     vehicle = (
@@ -538,10 +538,10 @@ def replace_maintenance_record(
             detail="Not authorized to replace this maintenance record"
         )
 
-    if record_db.status == "ready":
+    if record_db.status != "in_progress":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ready maintenance records cannot be replaced",
+            detail="Only records in progress can be replaced",
         )
 
     vehicle = (
@@ -640,10 +640,10 @@ def delete_maintenance_record(
             detail="Not authorized to delete this maintenance record"
         )
 
-    if maintenance_record.status == "ready":
+    if maintenance_record.status != "in_progress":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ready maintenance records cannot be deleted",
+            detail="Only records in progress can be deleted",
         )
 
     vehicle = (

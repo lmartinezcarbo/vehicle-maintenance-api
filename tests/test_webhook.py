@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.main import app
-from app.models import Payment
+from app.models import MaintenanceRecord, Payment
 
 client = TestClient(app)
 
@@ -209,3 +209,29 @@ def test_polling_endpoint_reflects_what_the_webhook_did(pending_payment, db, acc
     data = response.json()
     assert data["status"] == "paid"
     assert data["paid_at"] is not None
+
+
+def reload_record(db, maintenance_record_id):
+    db.expire_all()
+    return (
+        db.query(MaintenanceRecord)
+        .filter(MaintenanceRecord.id == maintenance_record_id)
+        .one()
+    )
+
+
+def test_paid_webhook_completes_the_maintenance_record(pending_payment, db):
+    cents = int(pending_payment.amount * 100)
+
+    assert send(completed_event(pending_payment, amount_total=cents)).status_code == 200
+
+    record = reload_record(db, pending_payment.maintenance_record_id)
+    assert record.status == "completed"
+
+
+def test_amount_mismatch_leaves_the_record_open(pending_payment, db):
+    """Stripe rejected the amount, so the job must stay payable."""
+    assert send(completed_event(pending_payment, amount_total=1)).status_code == 200
+
+    record = reload_record(db, pending_payment.maintenance_record_id)
+    assert record.status == "ready"
