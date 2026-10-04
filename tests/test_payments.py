@@ -107,12 +107,18 @@ def test_admin_can_read_any_payment(admin_token, pending_payment):
 def test_first_checkout_is_created_for_a_ready_record(
     ready_record, owner_token, db, monkeypatch
 ):
-    monkeypatch.setattr(
-        "app.routers.payments.create_checkout_session",
-        lambda **kwargs: FakeStripeSession(
+    captured = {}
+
+    def fake_create_checkout_session(**kwargs):
+        captured.update(kwargs)
+        return FakeStripeSession(
             f"cs_test_{kwargs['payment_id']}",
             f"https://checkout.stripe.com/c/pay/cs_test_{kwargs['payment_id']}",
-        ),
+        )
+
+    monkeypatch.setattr(
+        "app.routers.payments.create_checkout_session",
+        fake_create_checkout_session,
     )
 
     response = client.post(
@@ -128,6 +134,10 @@ def test_first_checkout_is_created_for_a_ready_record(
     assert data["amount"] == "50.00"
     assert data["checkout_url"].startswith("https://checkout.stripe.com/")
     assert payments_for(db, ready_record.id) == 1
+    # Stripe's receipt goes to the owner of the vehicle, not to whoever
+    # types an address into the hosted form: the address comes from our
+    # own graph of ownership, never from an external form.
+    assert captured["customer_email"] == "webhook-owner@example.com"
 
 
 def test_retry_hands_back_the_open_checkout(

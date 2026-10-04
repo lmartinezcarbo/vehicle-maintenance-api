@@ -9,11 +9,13 @@ def create_checkout_session(
     amount: int,
     currency: str,
     maintenance_record_id: int,
-    payment_id: int
+    payment_id: int,
+    customer_email: str,
 ):
     return stripe.checkout.Session.create(
         success_url=settings.stripe_success_url,
         cancel_url=settings.stripe_cancel_url,
+        customer_email=customer_email,
         
         mode="payment",
         line_items=[

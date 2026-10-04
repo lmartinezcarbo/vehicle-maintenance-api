@@ -153,6 +153,7 @@ def create_payment(
             currency=currency,
             maintenance_record_id=maintenance_record.id,
             payment_id=payment.id,
+            customer_email=vehicle.user.email,
         )
     except Exception:
         db.rollback()
