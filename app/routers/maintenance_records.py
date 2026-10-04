@@ -793,4 +793,10 @@ def delete_maintenance_record(
     db.delete(maintenance_record)
     db.commit()
 
+    logger.info(
+        "maintenance record %s deleted (user %s)",
+        maintenance_record_id,
+        access["user"].id,
+    )
+
     return {"message": "Maintenance record deleted successfully"}

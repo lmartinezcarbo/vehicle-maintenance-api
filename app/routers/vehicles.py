@@ -513,4 +513,8 @@ def delete_vehicle(
     db.delete(vehicle)
     db.commit()
 
+    logger.info(
+        "vehicle %s deleted (user %s)", vehicle_id, access["user"].id
+    )
+
     return {"message": "Vehicle deleted successfully"}

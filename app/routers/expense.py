@@ -719,5 +719,9 @@ def delete_expense(
     db.delete(expense)
     db.commit()
 
+    logger.info(
+        "expense %s deleted (user %s)", expense_id, access["user"].id
+    )
+
     return {"message": "Expense deleted successfully"}
 

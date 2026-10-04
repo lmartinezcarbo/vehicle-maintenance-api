@@ -660,4 +660,10 @@ def delete_maintenance_part(
     db.delete(maintenance_part)
     db.commit()
 
+    logger.info(
+        "maintenance part %s deleted (user %s)",
+        maintenance_part_id,
+        access["user"].id,
+    )
+
     return {"message": "Maintenance part deleted successfully"}

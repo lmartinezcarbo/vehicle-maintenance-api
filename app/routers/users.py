@@ -364,6 +364,10 @@ def delete_user(
     db.delete(user)
     db.commit()
 
+    logger.info(
+        "user %s deleted (user %s)", user_id, access["user"].id
+    )
+
     return
 
 

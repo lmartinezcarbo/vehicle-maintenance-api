@@ -7,6 +7,8 @@ status codes of a refused write and the money they add up to had no test
 behind them.
 """
 
+import logging
+import re
 from decimal import Decimal
 
 import pytest
@@ -282,3 +284,39 @@ def test_the_parts_catalog_is_admin_only(job, owner_token):
     )
 
     assert response.status_code == 403
+
+
+# --------------------------------------------------------------------------
+# Deletions are attributable
+# --------------------------------------------------------------------------
+
+def test_a_successful_delete_leaves_a_trace_in_the_log(
+    caplog, job, admin_token
+):
+    """When a row disappears, the log has to say which one and who did it.
+
+    This is what turns "the rows vanished" into an answer: the resource
+    id, the user id and the fact that the delete succeeded.
+    """
+    with caplog.at_level(
+        logging.INFO, logger="app.routers.maintenance_records"
+    ), caplog.at_level(logging.INFO, logger="app.routers.vehicles"):
+        record = client.delete(
+            f"/maintenance-records/{job['record_id']}",
+            headers=auth(admin_token),
+        )
+        vehicle = client.delete(
+            f"/vehicles/{job['vehicle_id']}",
+            headers=auth(admin_token),
+        )
+
+    assert record.status_code == 200
+    assert vehicle.status_code == 200
+
+    assert re.search(
+        rf"maintenance record {job['record_id']} deleted \(user \d+\)",
+        caplog.text,
+    )
+    assert re.search(
+        rf"vehicle {job['vehicle_id']} deleted \(user \d+\)", caplog.text
+    )

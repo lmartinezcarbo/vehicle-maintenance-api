@@ -1,3 +1,4 @@
+import logging
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -10,6 +11,8 @@ from app.schemas import PartCreate, PartResponse, PartUpdate, PartPut
 from app.models.part import Part
 from app.core.query_params import get_sort_params, SortOrder
 from app.core.rate_limit import limiter
+
+logger = logging.getLogger(__name__)
 
 
 class PartSearchField(str, Enum):
@@ -223,7 +226,7 @@ def delete_part(
     request: Request,
     part_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     part = (
         db.query(Part)
@@ -239,5 +242,9 @@ def delete_part(
 
     db.delete(part)
     db.commit()
+
+    logger.info(
+        "part %s deleted (admin %s)", part_id, current_user.id
+    )
 
     return {"message": "Part deleted successfully"}
