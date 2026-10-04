@@ -20,6 +20,7 @@ from app.core.dependencies import get_access_user, require_mechanic
 from app.core.query_params import get_sort_params, SortOrder
 from app.core.rate_limit import limiter
 from app.models import User
+from app.services.email import send_email
 from app.services.maintenance_price import (
     calculate_maintenance_total,
     calculate_maintenance_totals,
@@ -149,6 +150,40 @@ def create_maintenance_record(
         "created_at": new_maintenance.created_at,
     }
 
+def notify_record_ready(
+    maintenance_record: MaintenanceRecord, total_cost
+) -> None:
+    """
+    Tell the owner the job is finished and what it costs.
+
+    Runs after the commit: the record is ready whether or not Brevo is
+    reachable, so a delivery failure is logged and swallowed instead of
+    undoing a transition the workshop already made.
+    """
+    vehicle = maintenance_record.vehicle
+    owner = vehicle.user
+
+    try:
+        send_email(
+            to_email=owner.email,
+            subject="Your vehicle is ready",
+            html_content=f"""
+                <h1>Your vehicle is ready</h1>
+                <p>Hello {owner.name},</p>
+                <p>The service on your {vehicle.make} {vehicle.model}
+                   ({maintenance_record.description}) is finished and
+                   waiting for you.</p>
+                <p>Total to pay: {total_cost:.2f} USD</p>
+                <p>You can review and pay for it from your account.</p>
+            """,
+        )
+    except Exception:
+        logger.exception(
+            "ready notification for record %s could not be sent",
+            maintenance_record.id,
+        )
+
+
 @router.patch(
     "/{maintenance_record_id}/status",
     response_model=MaintenanceRecordResponse,
@@ -230,6 +265,8 @@ def update_maintenance_status(
         maintenance_record_id=maintenance_record.id,
         labor_cost=maintenance_record.labor_cost,
     )
+
+    notify_record_ready(maintenance_record, total_cost)
 
     return {
         "id": maintenance_record.id,

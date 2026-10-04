@@ -161,6 +161,34 @@ def test_a_maintenance_job_follows_the_money(
     assert money(still.json()["total_cost"]) == labor + parts
 
 
+def test_marking_a_job_ready_notifies_the_owner(
+    job, mechanic_token, sent_emails
+):
+    """The owner learns the job is finished and what it costs.
+
+    The total in the email has to be the total the API answers with:
+    both come from the same calculation, never from a second source.
+    """
+    response = client.patch(
+        f"/maintenance-records/{job['record_id']}/status",
+        json={"status": "ready"},
+        headers=auth(mechanic_token),
+    )
+    assert response.status_code == 200, response.text
+
+    total = money(response.json()["total_cost"])
+
+    ready_emails = [
+        message
+        for message in sent_emails
+        if message["to"] == "lifecycle-owner@example.com"
+        and "ready" in message["subject"].lower()
+    ]
+
+    assert len(ready_emails) == 1, ready_emails
+    assert f"{total:.2f}" in ready_emails[0]["html"]
+
+
 def test_ready_shuts_every_door(job, mechanic_token, admin_token):
     ready = client.patch(
         f"/maintenance-records/{job['record_id']}/status",
