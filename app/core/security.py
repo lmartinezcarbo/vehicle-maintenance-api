@@ -2,6 +2,8 @@ from pwdlib import PasswordHash
 from datetime import datetime, timedelta, timezone
 
 import jwt
+import hashlib
+import hmac
 import secrets
 
 
@@ -45,8 +47,16 @@ def create_refresh_token() -> str:
 
 
 def hash_refresh_token(token: str) -> str:
-    return password_hash.hash(token)
+    """Deterministic digest that the database can look up by index.
 
-
-def verify_refresh_token(token: str, token_hash: str) -> bool:
-    return password_hash.verify(token, token_hash)
+    Refresh tokens carry 64 bytes of randomness, so there is nothing to
+    brute force, and the API has to find one row among all of them: a
+    salted password hash stores a different value per row, which forces
+    a full scan with a password KDF per row. A keyed digest keeps the
+    token itself out of storage and lets the unique index do the work.
+    """
+    return hmac.new(
+        settings.secret_key.encode("utf-8"),
+        token.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()

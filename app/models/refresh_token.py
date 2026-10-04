@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -52,4 +52,13 @@ class RefreshToken(Base):
 
     user: Mapped["User"] = relationship(
         back_populates="refresh_tokens"
+    )
+
+    # The three predicates the refresh flow actually uses: lookup by user,
+    # revoke a family on reuse, and prune what has expired. Postgres does
+    # not index foreign keys by itself.
+    __table_args__ = (
+        Index("ix_refresh_tokens_user_id", "user_id"),
+        Index("ix_refresh_tokens_family_id", "family_id"),
+        Index("ix_refresh_tokens_expires_at", "expires_at"),
     )

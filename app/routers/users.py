@@ -35,7 +35,6 @@ from app.core.security import (
     create_refresh_token,
     hash_refresh_token,
     verify_password,
-    verify_refresh_token,
     hash_password,
 )
 
@@ -46,6 +45,35 @@ router = APIRouter(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _find_refresh_token(db: Session, token: str) -> RefreshToken | None:
+    """One indexed lookup.
+
+    The digest is deterministic, so the database matches the row. The
+    previous version loaded every refresh token in the table and ran a
+    password hash verification against each of them, so the cost of a
+    single request grew with every login ever made.
+    """
+    return (
+        db.query(RefreshToken)
+        .filter(RefreshToken.token_hash == hash_refresh_token(token))
+        .first()
+    )
+
+
+def _prune_expired_tokens(db: Session, user_id: int) -> None:
+    """Drop what can never be used again.
+
+    Every login and every rotation inserts a row, and nothing deleted
+    them: the table grew without bound and dragged the whole history
+    along. An expired row cannot authenticate again, and expiry ends the
+    reuse-detection family it belongs to, so it is always safe to go.
+    """
+    db.query(RefreshToken).filter(
+        RefreshToken.user_id == user_id,
+        RefreshToken.expires_at < datetime.now(timezone.utc),
+    ).delete(synchronize_session=False)
 
 class UserSearchField(str, Enum):
     name = "name"
@@ -411,54 +439,41 @@ def refresh_token(
     data: RefreshTokenRequest,
     db: Session = Depends(get_db),
 ):
-    refresh_tokens = db.query(RefreshToken).all()
-
-    refresh_token_record = None
-
-    for token_record in refresh_tokens:
-        if verify_refresh_token(
-            data.refresh_token,
-            token_record.token_hash,
-        ):
-            refresh_token_record = token_record
-            break
-
-    if (
-        refresh_token_record is not None
-        and refresh_token_record.revoked
-        and refresh_token_record.revoked_reason == "rotation"
-    ):
-        db.query(RefreshToken).filter(
-            RefreshToken.family_id == refresh_token_record.family_id
-        ).update(
-            {
-                RefreshToken.revoked: True,
-                RefreshToken.revoked_reason: "reuse",
-            },
-            synchronize_session=False,
-        )
-
-        db.commit()
-
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token reuse detected",
-        )
-
-    if (
-        refresh_token_record is not None
-        and refresh_token_record.revoked
-        and refresh_token_record.revoked_reason == "logout"
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token revoked",
-        )
+    refresh_token_record = _find_refresh_token(db, data.refresh_token)
 
     if refresh_token_record is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
+        )
+
+    # A revoked token stays dead. "rotation" means it was already
+    # exchanged, so somebody is replaying it: burn the whole family. Any
+    # other revocation - logout, or a family that was already burned -
+    # simply stays revoked, instead of falling through and minting a
+    # fresh session.
+    if refresh_token_record.revoked:
+        if refresh_token_record.revoked_reason == "rotation":
+            db.query(RefreshToken).filter(
+                RefreshToken.family_id == refresh_token_record.family_id
+            ).update(
+                {
+                    RefreshToken.revoked: True,
+                    RefreshToken.revoked_reason: "reuse",
+                },
+                synchronize_session=False,
+            )
+
+            db.commit()
+
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token reuse detected",
+            )
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token revoked",
         )
 
     if refresh_token_record.expires_at <= datetime.now(timezone.utc):
@@ -485,6 +500,7 @@ def refresh_token(
     )
 
     db.add(new_refresh_token_record)
+    _prune_expired_tokens(db, refresh_token_record.user_id)
     db.commit()
 
     access_token = create_access_token({
@@ -504,17 +520,7 @@ def logout(
     data: RefreshTokenRequest,
     db: Session = Depends(get_db),
 ):
-    refresh_tokens = db.query(RefreshToken).all()
-
-    refresh_token_record = None
-
-    for token_record in refresh_tokens:
-        if verify_refresh_token(
-            data.refresh_token,
-            token_record.token_hash,
-        ):
-            refresh_token_record = token_record
-            break
+    refresh_token_record = _find_refresh_token(db, data.refresh_token)
 
     if refresh_token_record is None:
         raise HTTPException(
@@ -729,6 +735,7 @@ def verify_2fa(
     )
 
     db.add(refresh_token_record)
+    _prune_expired_tokens(db, user.id)
     db.commit()
 
     return {
