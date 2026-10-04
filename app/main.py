@@ -14,6 +14,7 @@ from app.core.exception_handlers import general_exception_handler
 from app.routers.health import router as health_router
 from app.core.rate_limit import limiter
 from app.core.config import settings
+from app.routers.payments import router as payments_router
 
 
 
@@ -48,6 +49,7 @@ app.include_router(maintenance_part_router)
 app.include_router(expense_router)
 app.add_exception_handler(Exception, general_exception_handler)
 app.include_router(health_router)
+app.include_router(payments_router)
 
 logger = logging.getLogger(__name__)
 

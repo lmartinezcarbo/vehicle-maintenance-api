@@ -21,8 +21,11 @@ class MaintenanceRecordResponse(BaseModel):
     mileage: int
     service_date: datetime
     labor_cost: Decimal
+    total_cost: Decimal
+    status: str
     notes: str | None
     created_at: datetime
+
 
 class MaintenanceRecordUpdate(BaseModel):
     service_type: str | None = None
@@ -39,3 +42,6 @@ class MaintenanceRecordPut(BaseModel):
     service_date: datetime
     labor_cost: Decimal
     notes: str | None = None
+
+class MaintenanceRecordStatusUpdate(BaseModel):
+    status: str

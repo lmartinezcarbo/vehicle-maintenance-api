@@ -63,6 +63,12 @@ def create_maintenance_part(
             detail="Not authorized to access this maintenance record"
         )
 
+    if maintenance_record.status == "ready":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ready maintenance records cannot be modified",
+        )
+
     vehicle = (
         db.query(Vehicle)
         .filter(Vehicle.id == maintenance_record.vehicle_id)
@@ -309,6 +315,12 @@ def update_maintenance_part(
         .first()
     )
 
+    if maintenance_record.status == "ready":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ready maintenance records cannot be modified",
+        )
+
     vehicle = (
         db.query(Vehicle)
         .filter(Vehicle.id == maintenance_record.vehicle_id)
@@ -374,6 +386,12 @@ def replace_maintenance_part(
         .first()
     )
 
+    if record.status == "ready":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ready maintenance records cannot be modified",
+        )
+
     if access["user"].role == "customer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -431,6 +449,12 @@ def delete_maintenance_part(
         )
         .first()
     )
+
+    if maintenance_record.status == "ready":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ready maintenance records cannot be modified",
+        )
 
     vehicle = (
         db.query(Vehicle)

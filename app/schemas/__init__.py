@@ -12,6 +12,7 @@ from app.schemas.maintenance_record import (
     MaintenanceRecordResponse,
     MaintenanceRecordUpdate,
     MaintenanceRecordPut,
+    MaintenanceRecordStatusUpdate,
 )
 from app.schemas.expense import (
     ExpenseCreate,
@@ -19,3 +20,4 @@ from app.schemas.expense import (
     ExpenseUpdate,
     ExpensePut
 )
+from app.schemas.payment import PaymentCreate, PaymentResponse

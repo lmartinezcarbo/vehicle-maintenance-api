@@ -6,3 +6,4 @@ from app.models.maintenance_part import MaintenancePart
 from app.models.expense import Expense
 from app.models.refresh_token import RefreshToken
 from app.models.one_time_code import OneTimeCode
+from app.models.payment import Payment

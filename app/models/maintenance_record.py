@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.models.vehicle import Vehicle
     from app.models.maintenance_part import MaintenancePart
     from app.models.expense import Expense
+    from app.models.payment import Payment
 
 
 class MaintenanceRecord(Base):
@@ -45,6 +46,12 @@ class MaintenanceRecord(Base):
         nullable=False,
     )
 
+    status: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        default="in_progress",
+    )
+
     notes: Mapped[str | None] = mapped_column(
         String,
         nullable=True,
@@ -65,19 +72,26 @@ class MaintenanceRecord(Base):
     expenses: Mapped[list["Expense"]] = relationship(
         back_populates="maintenance_record"
     )
+    payments: Mapped[list["Payment"]] = relationship(
+        back_populates="maintenance_record"
+    )
     __table_args__ = (
     CheckConstraint(
         "mileage >= 0",
         name="check_maintenance_mileage_non_negative",
-        ),
+    ),
     CheckConstraint(
         "labor_cost >= 0",
         name="check_labor_cost_non_negative",
-        ),
+    ),
+    CheckConstraint(
+        "status IN ('in_progress', 'ready')",
+        name="check_maintenance_status",
+    ),
     UniqueConstraint(
         "vehicle_id",
         "id",
         name="uq_maintenance_records_vehicle_id_id",
-        ),
+    ),
     Index("ix_maintenance_records_vehicle_id", "vehicle_id"),
-    )
+)

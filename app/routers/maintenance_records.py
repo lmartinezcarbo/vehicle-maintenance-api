@@ -1,3 +1,4 @@
+from decimal import Decimal
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -10,6 +11,7 @@ from app.schemas import (
     MaintenanceRecordResponse,
     MaintenanceRecordUpdate,
     MaintenanceRecordPut,
+    MaintenanceRecordStatusUpdate,
 )
 from app.models.maintenance_record import MaintenanceRecord
 from app.models.vehicle import Vehicle
@@ -17,6 +19,10 @@ from app.core.dependencies import get_access_user, require_mechanic
 from app.core.query_params import get_sort_params, SortOrder
 from app.core.rate_limit import limiter
 from app.models import User
+from app.services.maintenance_price import (
+    calculate_maintenance_total,
+    calculate_maintenance_totals,
+)
 
 
 class MaintenanceSearchField(str, Enum):
@@ -103,8 +109,103 @@ def create_maintenance_record(
     db.commit()
     db.refresh(new_maintenance)
 
-    return new_maintenance
+    total_cost = calculate_maintenance_total(
+        db=db,
+        maintenance_record_id=new_maintenance.id,
+        labor_cost=new_maintenance.labor_cost,
+    )
 
+    return {
+        "id": new_maintenance.id,
+        "vehicle_id": new_maintenance.vehicle_id,
+        "service_type": new_maintenance.service_type,
+        "description": new_maintenance.description,
+        "mileage": new_maintenance.mileage,
+        "service_date": new_maintenance.service_date,
+        "labor_cost": new_maintenance.labor_cost,
+        "total_cost": total_cost,
+        "status": new_maintenance.status,
+        "notes": new_maintenance.notes,
+        "created_at": new_maintenance.created_at,
+    }
+
+@router.patch(
+    "/{maintenance_record_id}/status",
+    response_model=MaintenanceRecordResponse,
+)
+@limiter.limit("20/minute")
+def update_maintenance_status(
+    request: Request,
+    maintenance_record_id: int,
+    status_data: MaintenanceRecordStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_mechanic),
+):
+    maintenance_record = (
+        db.query(MaintenanceRecord)
+        .filter(MaintenanceRecord.id == maintenance_record_id)
+        .first()
+    )
+
+    if maintenance_record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Maintenance record not found",
+        )
+
+    vehicle = (
+        db.query(Vehicle)
+        .filter(Vehicle.id == maintenance_record.vehicle_id)
+        .first()
+    )
+
+    if current_user.role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mechanics can only update customer maintenance records",
+            )
+
+    if maintenance_record.status != "in_progress":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only maintenance records in progress can be marked as ready",
+        )
+
+    if status_data.status != "ready":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Maintenance status can only be changed to ready",
+        )
+
+    maintenance_record.status = "ready"
+
+    db.commit()
+    db.refresh(maintenance_record)
+
+    total_cost = calculate_maintenance_total(
+        db=db,
+        maintenance_record_id=maintenance_record.id,
+        labor_cost=maintenance_record.labor_cost,
+    )
+
+    return {
+        "id": maintenance_record.id,
+        "vehicle_id": maintenance_record.vehicle_id,
+        "service_type": maintenance_record.service_type,
+        "description": maintenance_record.description,
+        "mileage": maintenance_record.mileage,
+        "service_date": maintenance_record.service_date,
+        "labor_cost": maintenance_record.labor_cost,
+        "total_cost": total_cost,
+        "status": maintenance_record.status,
+        "notes": maintenance_record.notes,
+        "created_at": maintenance_record.created_at,
+    }
 
 @router.get("/", response_model=list[MaintenanceRecordResponse])
 def get_maintenance_records(
@@ -195,7 +296,36 @@ def get_maintenance_records(
             query = query.order_by(sort_column.desc())
 
     # Pagination
-    return query.offset(offset).limit(limit).all()
+    maintenance_records = query.offset(offset).limit(limit).all()
+
+    maintenance_record_ids = [
+        record.id for record in maintenance_records
+    ]
+
+    part_totals = calculate_maintenance_totals(
+        db=db,
+        maintenance_record_ids=maintenance_record_ids,
+    )
+
+    return [
+        {
+            "id": record.id,
+            "vehicle_id": record.vehicle_id,
+            "service_type": record.service_type,
+            "description": record.description,
+            "mileage": record.mileage,
+            "service_date": record.service_date,
+            "labor_cost": record.labor_cost,
+            "total_cost": record.labor_cost + part_totals.get(
+                record.id,
+                Decimal("0"),
+            ),
+            "status": record.status,
+            "notes": record.notes,
+            "created_at": record.created_at,
+        }
+        for record in maintenance_records
+    ]
 
 
 @router.get(
@@ -251,7 +381,25 @@ def get_maintenance_record(
 
 # admin → puede acceder a cualquier registro
 
-    return maintenance_record
+    total_cost = calculate_maintenance_total(
+        db=db,
+        maintenance_record_id=maintenance_record.id,
+        labor_cost=maintenance_record.labor_cost,
+    )
+
+    return {
+        "id": maintenance_record.id,
+        "vehicle_id": maintenance_record.vehicle_id,
+        "service_type": maintenance_record.service_type,
+        "description": maintenance_record.description,
+        "mileage": maintenance_record.mileage,
+        "service_date": maintenance_record.service_date,
+        "labor_cost": maintenance_record.labor_cost,
+        "total_cost": total_cost,
+        "status": maintenance_record.status,
+        "notes": maintenance_record.notes,
+        "created_at": maintenance_record.created_at,
+    }
 
 
 @router.patch(
@@ -282,6 +430,12 @@ def update_maintenance_record(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this maintenance record"
+        )
+
+    if maintenance_record_db.status == "ready":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ready maintenance records cannot be modified",
         )
 
     vehicle = (
@@ -342,7 +496,25 @@ def update_maintenance_record(
     db.commit()
     db.refresh(maintenance_record_db)
 
-    return maintenance_record_db
+    total_cost = calculate_maintenance_total(
+        db=db,
+        maintenance_record_id=maintenance_record_db.id,
+        labor_cost=maintenance_record_db.labor_cost,
+    )
+
+    return {
+        "id": maintenance_record_db.id,
+        "vehicle_id": maintenance_record_db.vehicle_id,
+        "service_type": maintenance_record_db.service_type,
+        "description": maintenance_record_db.description,
+        "mileage": maintenance_record_db.mileage,
+        "service_date": maintenance_record_db.service_date,
+        "labor_cost": maintenance_record_db.labor_cost,
+        "total_cost": total_cost,
+        "status": maintenance_record_db.status,
+        "notes": maintenance_record_db.notes,
+        "created_at": maintenance_record_db.created_at,
+    }
 
 
 @router.put("/{record_id}", response_model=MaintenanceRecordResponse)
@@ -364,6 +536,12 @@ def replace_maintenance_record(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to replace this maintenance record"
+        )
+
+    if record_db.status == "ready":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ready maintenance records cannot be replaced",
         )
 
     vehicle = (
@@ -416,8 +594,25 @@ def replace_maintenance_record(
     db.commit()
     db.refresh(record_db)
 
-    return record_db
+    total_cost = calculate_maintenance_total(
+        db=db,
+        maintenance_record_id=record_db.id,
+        labor_cost=record_db.labor_cost,
+    )
 
+    return {
+        "id": record_db.id,
+        "vehicle_id": record_db.vehicle_id,
+        "service_type": record_db.service_type,
+        "description": record_db.description,
+        "mileage": record_db.mileage,
+        "service_date": record_db.service_date,
+        "labor_cost": record_db.labor_cost,
+        "total_cost": total_cost,
+        "status": record_db.status,
+        "notes": record_db.notes,
+        "created_at": record_db.created_at,
+    }
 
 @router.delete("/{maintenance_record_id}")
 @limiter.limit("20/minute")
@@ -443,6 +638,12 @@ def delete_maintenance_record(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this maintenance record"
+        )
+
+    if maintenance_record.status == "ready":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ready maintenance records cannot be deleted",
         )
 
     vehicle = (

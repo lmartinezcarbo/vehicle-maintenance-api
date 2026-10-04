@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     brevo_api_key: str
     email_from: str
+    stripe_secret_key: str
+    stripe_success_url: str
+    stripe_cancel_url: str
 
     model_config = SettingsConfigDict(
         env_file=".env",
