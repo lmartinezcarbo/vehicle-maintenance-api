@@ -1,3 +1,4 @@
+import logging
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -12,6 +13,9 @@ from app.core.dependencies import get_access_user, require_mechanic
 from app.core.query_params import get_sort_params, SortOrder
 from app.core.rate_limit import limiter
 from app.models import User
+
+logger = logging.getLogger(__name__)
+
 
 class ExpenseSearchField(str, Enum):
     category = "category"
@@ -47,18 +51,18 @@ def create_expense(
     )
 
     if vehicle is None:
+        logger.warning(
+            "create expense denied: vehicle %s does not exist (user %s)",
+            expense.vehicle_id,
+            current_user.id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to create an expense for this vehicle",
         )
 
-    if not vehicle.verified:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Vehicle must be verified before creating expenses",
-        )
-
-    # Authorization: regular users can only use their own vehicle
+    # Authorization before state: whoever may not use this vehicle gets
+    # the same 403 whether it is unverified or owned by nobody.
     if current_user.role == "mechanic":
         owner = (
             db.query(User)
@@ -67,10 +71,22 @@ def create_expense(
         )
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "create expense denied: vehicle %s has no customer owner "
+                "(mechanic %s)",
+                expense.vehicle_id,
+                current_user.id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only create expenses for customer vehicles",
+                detail="Not authorized to create an expense for this vehicle",
             )
+
+    if not vehicle.verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vehicle must be verified before creating expenses",
+        )
 
     # Validate maintenance record if provided
     if expense.maintenance_record_id is not None:
@@ -95,9 +111,9 @@ def create_expense(
                 detail="Maintenance record does not belong to this vehicle",
             )
 
-        # The total is frozen once the record leaves "in_progress": moving it
-        # after a checkout was opened would make the amount the customer saw
-        # differ from the amount the webhook checks.
+        # Expenses do not enter the amount Stripe charges (that is labor
+        # plus parts), but a record that left "in_progress" is closed for
+        # new work: it must stop changing as a whole.
         if maintenance_record.status != "in_progress":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -256,6 +272,20 @@ def get_expense(
     )
 
     if expense is None:
+        logger.warning(
+            "access denied: expense %s does not exist (user %s)",
+            expense_id,
+            access["user"].id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this expense",
+        )
+
+    if expense.vehicle is None:
+        logger.warning(
+            "access denied: expense %s has no vehicle", expense_id
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this expense",
@@ -264,6 +294,13 @@ def get_expense(
     # Authorization
     if access["user"].role == "customer":
         if expense.vehicle.user_id != access["user"].id:
+            logger.warning(
+                "access denied: expense %s belongs to vehicle of user %s "
+                "(user %s)",
+                expense_id,
+                expense.vehicle.user_id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to access this expense",
@@ -277,6 +314,12 @@ def get_expense(
         )
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "access denied: vehicle %s has no customer owner "
+                "(mechanic %s)",
+                expense.vehicle_id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to access this expense",
@@ -312,6 +355,11 @@ def update_expense(
     )
 
     if expense_db is None:
+        logger.warning(
+            "update denied: expense %s does not exist (user %s)",
+            expense_id,
+            access["user"].id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this expense",
@@ -321,10 +369,24 @@ def update_expense(
     # AUTHORIZATION OF CURRENT EXPENSE
     # ---------------------------------------------------------
 
-    if access["user"].role == "customer":
+    if expense_db.vehicle is None:
+        logger.warning(
+            "update denied: expense %s has no vehicle", expense_id
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Customers cannot modify expenses",
+            detail="Not authorized to update this expense",
+        )
+
+    if access["user"].role == "customer":
+        logger.warning(
+            "update denied: user %s is a customer (expense %s)",
+            access["user"].id,
+            expense_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this expense",
         )
 
     if access["user"].role == "mechanic":
@@ -335,9 +397,15 @@ def update_expense(
         )
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "update denied: vehicle %s has no customer owner "
+                "(mechanic %s)",
+                expense_db.vehicle_id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only modify customer expenses",
+                detail="Not authorized to update this expense",
             )
 
 # admin → can modify any expense
@@ -407,6 +475,39 @@ def update_expense(
                 )
 
     # ---------------------------------------------------------
+    # FROZEN RECORD
+    # ---------------------------------------------------------
+
+    # The expense may neither live on nor move to a record that already
+    # left "in_progress": a record stops changing as a whole.
+    affected_record_ids = {
+        expense_db.maintenance_record_id,
+        update_data.get(
+            "maintenance_record_id",
+            expense_db.maintenance_record_id,
+        ),
+    }
+
+    for record_id in affected_record_ids:
+        if record_id is None:
+            continue
+
+        record = (
+            db.query(MaintenanceRecord)
+            .filter(MaintenanceRecord.id == record_id)
+            .first()
+        )
+
+        if record is None:
+            continue
+
+        if record.status != "in_progress":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only records in progress can be modified",
+            )
+
+    # ---------------------------------------------------------
     # APPLY UPDATE
     # ---------------------------------------------------------
 
@@ -434,6 +535,11 @@ def replace_expense(
     )
 
     if expense_db is None:
+        logger.warning(
+            "replace denied: expense %s does not exist (user %s)",
+            expense_id,
+            access["user"].id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to replace this expense"
@@ -445,10 +551,24 @@ def replace_expense(
         .first()
     )
 
-    if access["user"].role == "customer":
+    if vehicle is None:
+        logger.warning(
+            "replace denied: expense %s has no vehicle", expense_id
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Customers cannot modify expenses"
+            detail="Not authorized to replace this expense"
+        )
+
+    if access["user"].role == "customer":
+        logger.warning(
+            "replace denied: user %s is a customer (expense %s)",
+            access["user"].id,
+            expense_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this expense"
         )
 
     if access["user"].role == "mechanic":
@@ -459,12 +579,35 @@ def replace_expense(
         )
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "replace denied: vehicle %s has no customer owner "
+                "(mechanic %s)",
+                expense_db.vehicle_id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only modify customer expenses"
+                detail="Not authorized to replace this expense"
             )
 
 # admin → can modify any expense
+
+    # The expense stops changing once the record it lives on left
+    # "in_progress".
+    if expense_db.maintenance_record_id is not None:
+        record = (
+            db.query(MaintenanceRecord)
+            .filter(
+                MaintenanceRecord.id == expense_db.maintenance_record_id
+            )
+            .first()
+        )
+
+        if record is not None and record.status != "in_progress":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only records in progress can be modified",
+            )
 
     expense_db.category = expense_data.category
     expense_db.amount = expense_data.amount
@@ -500,6 +643,20 @@ def delete_expense(
     )
 
     if expense is None:
+        logger.warning(
+            "delete denied: expense %s does not exist (user %s)",
+            expense_id,
+            access["user"].id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this expense",
+        )
+
+    if expense.vehicle is None:
+        logger.warning(
+            "delete denied: expense %s has no vehicle", expense_id
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this expense",
@@ -507,9 +664,14 @@ def delete_expense(
 
     # Authorization
     if access["user"].role == "customer":
+        logger.warning(
+            "delete denied: user %s is a customer (expense %s)",
+            access["user"].id,
+            expense_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Customers cannot delete expenses",
+            detail="Not authorized to delete this expense",
         )
 
     if access["user"].role == "mechanic":
@@ -520,9 +682,32 @@ def delete_expense(
         )
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "delete denied: vehicle %s has no customer owner "
+                "(mechanic %s)",
+                expense.vehicle_id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only delete customer expenses",
+                detail="Not authorized to delete this expense",
+            )
+
+    # The expense stops changing once the record it lives on left
+    # "in_progress".
+    if expense.maintenance_record_id is not None:
+        record = (
+            db.query(MaintenanceRecord)
+            .filter(
+                MaintenanceRecord.id == expense.maintenance_record_id
+            )
+            .first()
+        )
+
+        if record is not None and record.status != "in_progress":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only records in progress can be modified",
             )
 
 # admin → can delete any expense

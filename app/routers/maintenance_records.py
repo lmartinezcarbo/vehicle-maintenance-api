@@ -60,15 +60,14 @@ def create_maintenance_record(
     )
 
     if vehicle is None:
+        logger.warning(
+            "create denied: vehicle %s does not exist (mechanic %s)",
+            maintenance.vehicle_id,
+            current_user.id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this vehicle"
-        )
-
-    if not vehicle.verified:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Vehicle must be verified before creating maintenance records"
+            detail="Not authorized to create this maintenance record"
         )
 
     if current_user.role == "mechanic":
@@ -77,10 +76,24 @@ def create_maintenance_record(
         ).first()
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "create denied: vehicle %s has no customer owner "
+                "(mechanic %s)",
+                maintenance.vehicle_id,
+                current_user.id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only create maintenance records for customer vehicles"
+                detail="Not authorized to create this maintenance record"
             )
+
+    # State only after authorization: whoever may not create gets the same
+    # 403 whether the vehicle is missing, foreign or unverified.
+    if not vehicle.verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vehicle must be verified before creating maintenance records"
+        )
 
     last_maintenance = (
         db.query(MaintenanceRecord)
@@ -151,9 +164,15 @@ def update_maintenance_status(
     )
 
     if maintenance_record is None:
+        logger.warning(
+            "status change denied: record %s does not exist (user %s)",
+            maintenance_record_id,
+            current_user.id,
+        )
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Maintenance record not found",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update the status of this "
+                   "maintenance record",
         )
 
     vehicle = (
@@ -163,16 +182,28 @@ def update_maintenance_status(
     )
 
     if current_user.role == "mechanic":
-        owner = db.query(User).filter(
-            User.id == vehicle.user_id
-        ).first()
+        owner = None
+
+        if vehicle is not None:
+            owner = db.query(User).filter(
+                User.id == vehicle.user_id
+            ).first()
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "status change denied: record %s has no customer owner "
+                "(mechanic %s)",
+                maintenance_record_id,
+                current_user.id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only update customer maintenance records",
+                detail="Not authorized to update the status of this "
+                       "maintenance record",
             )
 
+    # State only after authorization: whoever may not touch this record
+    # gets the same 403 whether it exists or not.
     if maintenance_record.status != "in_progress":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

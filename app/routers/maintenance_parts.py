@@ -5,6 +5,7 @@ This module contains all the API endpoints related to maintenance parts.
 It handles CRUD operations for maintenance parts associated with maintenance records.
 """
 
+import logging
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -25,6 +26,8 @@ from app.core.dependencies import get_access_user, require_mechanic
 from app.core.query_params import get_sort_params, SortOrder
 from app.core.rate_limit import limiter
 from app.models import User
+
+logger = logging.getLogger(__name__)
 
 
 class MaintenancePartSearchField(str, Enum):
@@ -58,15 +61,14 @@ def create_maintenance_part(
     )
 
     if maintenance_record is None:
+        logger.warning(
+            "create part denied: record %s does not exist (user %s)",
+            maintenance_part.maintenance_record_id,
+            current_user.id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this maintenance record"
-        )
-
-    if maintenance_record.status != "in_progress":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only records in progress can be modified",
+            detail="Not authorized to create this maintenance part"
         )
 
     vehicle = (
@@ -75,10 +77,14 @@ def create_maintenance_part(
         .first()
     )
 
-    if not vehicle.verified:
+    if vehicle is None:
+        logger.warning(
+            "create part denied: record %s has no vehicle",
+            maintenance_record.id,
+        )
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Vehicle must be verified before adding maintenance parts"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to create this maintenance part"
         )
 
     if current_user.role == "mechanic":
@@ -87,10 +93,30 @@ def create_maintenance_part(
         ).first()
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "create part denied: record %s has no customer owner "
+                "(mechanic %s)",
+                maintenance_record.id,
+                current_user.id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only add parts to customer maintenance records"
+                detail="Not authorized to create this maintenance part"
             )
+
+    # State only after authorization: whoever may not add parts gets the
+    # same 403 whether the record is missing, foreign or already frozen.
+    if maintenance_record.status != "in_progress":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only records in progress can be modified",
+        )
+
+    if not vehicle.verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vehicle must be verified before adding maintenance parts"
+        )
 
     part = (
         db.query(Part)
@@ -238,6 +264,11 @@ def get_maintenance_part_by_id(
     )
 
     if maintenance_part is None:
+        logger.warning(
+            "access denied: maintenance part %s does not exist (user %s)",
+            maintenance_part_id,
+            access["user"].id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this maintenance part"
@@ -251,14 +282,33 @@ def get_maintenance_part_by_id(
         .first()
     )
 
-    vehicle = (
-        db.query(Vehicle)
-        .filter(Vehicle.id == maintenance_record.vehicle_id)
-        .first()
-    )
+    vehicle = None
+
+    if maintenance_record is not None:
+        vehicle = (
+            db.query(Vehicle)
+            .filter(Vehicle.id == maintenance_record.vehicle_id)
+            .first()
+        )
+
+    if vehicle is None:
+        logger.warning(
+            "access denied: maintenance part %s has no vehicle",
+            maintenance_part_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this maintenance part"
+        )
 
     if access["user"].role == "customer":
         if vehicle.user_id != access["user"].id:
+            logger.warning(
+                "access denied: vehicle %s belongs to user %s (user %s)",
+                vehicle.id,
+                vehicle.user_id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to access this maintenance part"
@@ -270,6 +320,12 @@ def get_maintenance_part_by_id(
         ).first()
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "access denied: vehicle %s has no customer owner "
+                "(mechanic %s)",
+                vehicle.id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to access this maintenance part"
@@ -302,6 +358,12 @@ def update_maintenance_part(
     )
 
     if maintenance_part_db is None:
+        logger.warning(
+            "update part denied: maintenance part %s does not exist "
+            "(user %s)",
+            maintenance_part_id,
+            access["user"].id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this maintenance part"
@@ -315,10 +377,14 @@ def update_maintenance_part(
         .first()
     )
 
-    if maintenance_record.status != "in_progress":
+    if maintenance_record is None:
+        logger.warning(
+            "update part denied: maintenance part %s has no record",
+            maintenance_part_db.id,
+        )
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only records in progress can be modified",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this maintenance part"
         )
 
     vehicle = (
@@ -327,10 +393,25 @@ def update_maintenance_part(
         .first()
     )
 
-    if access["user"].role == "customer":
+    if vehicle is None:
+        logger.warning(
+            "update part denied: record %s has no vehicle",
+            maintenance_record.id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Customers cannot modify maintenance parts"
+            detail="Not authorized to update this maintenance part"
+        )
+
+    if access["user"].role == "customer":
+        logger.warning(
+            "update part denied: user %s is a customer (part %s)",
+            access["user"].id,
+            maintenance_part_db.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this maintenance part"
         )
 
     if access["user"].role == "mechanic":
@@ -339,10 +420,24 @@ def update_maintenance_part(
         ).first()
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "update part denied: record %s has no customer owner "
+                "(mechanic %s)",
+                maintenance_record.id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only modify customer maintenance parts"
+                detail="Not authorized to update this maintenance part"
             )
+
+    # State only after authorization: whoever may not touch this part gets
+    # the same 403 whether it exists or is already frozen.
+    if maintenance_record.status != "in_progress":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only records in progress can be modified",
+        )
 
 # admin → can modify any maintenance part
 
@@ -372,6 +467,12 @@ def replace_maintenance_part(
     )
 
     if maintenance_part_db is None:
+        logger.warning(
+            "replace part denied: maintenance part %s does not exist "
+            "(user %s)",
+            maintenance_part_id,
+            access["user"].id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to replace this maintenance part"
@@ -386,28 +487,60 @@ def replace_maintenance_part(
         .first()
     )
 
+    vehicle = None
+
+    if record is not None:
+        vehicle = (
+            db.query(Vehicle)
+            .filter(Vehicle.id == record.vehicle_id)
+            .first()
+        )
+
+    if vehicle is None:
+        logger.warning(
+            "replace part denied: maintenance part %s has no vehicle",
+            maintenance_part_db.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this maintenance part"
+        )
+
+    if access["user"].role == "customer":
+        logger.warning(
+            "replace part denied: user %s is a customer (part %s)",
+            access["user"].id,
+            maintenance_part_db.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this maintenance part"
+        )
+
+    if access["user"].role == "mechanic":
+        owner = db.query(User).filter(
+            User.id == vehicle.user_id
+        ).first()
+
+        if owner is None or owner.role != "customer":
+            logger.warning(
+                "replace part denied: record %s has no customer owner "
+                "(mechanic %s)",
+                record.id,
+                access["user"].id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to replace this maintenance part"
+            )
+
+    # State only after authorization: whoever may not touch this part gets
+    # the same 403 whether it exists or is already frozen.
     if record.status != "in_progress":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only records in progress can be modified",
         )
-
-    if access["user"].role == "customer":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Customers cannot modify maintenance parts"
-        )
-
-    if access["user"].role == "mechanic":
-        owner = db.query(User).filter(
-            User.id == record.vehicle.user_id
-        ).first()
-
-        if owner is None or owner.role != "customer":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only modify customer maintenance parts"
-            )
 
 # admin → can modify any maintenance part
 
@@ -437,6 +570,12 @@ def delete_maintenance_part(
     )
 
     if maintenance_part is None:
+        logger.warning(
+            "delete part denied: maintenance part %s does not exist "
+            "(user %s)",
+            maintenance_part_id,
+            access["user"].id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this maintenance part"
@@ -450,10 +589,14 @@ def delete_maintenance_part(
         .first()
     )
 
-    if maintenance_record.status != "in_progress":
+    if maintenance_record is None:
+        logger.warning(
+            "delete part denied: maintenance part %s has no record",
+            maintenance_part.id,
+        )
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only records in progress can be modified",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this maintenance part"
         )
 
     vehicle = (
@@ -462,10 +605,25 @@ def delete_maintenance_part(
         .first()
     )
 
-    if access["user"].role == "customer":
+    if vehicle is None:
+        logger.warning(
+            "delete part denied: record %s has no vehicle",
+            maintenance_record.id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Customers cannot delete maintenance parts"
+            detail="Not authorized to delete this maintenance part"
+        )
+
+    if access["user"].role == "customer":
+        logger.warning(
+            "delete part denied: user %s is a customer (part %s)",
+            access["user"].id,
+            maintenance_part.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this maintenance part"
         )
 
     if access["user"].role == "mechanic":
@@ -474,10 +632,24 @@ def delete_maintenance_part(
         ).first()
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "delete part denied: record %s has no customer owner "
+                "(mechanic %s)",
+                maintenance_record.id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only delete customer maintenance parts"
+                detail="Not authorized to delete this maintenance part"
             )
+
+    # State only after authorization: whoever may not touch this part gets
+    # the same 403 whether it exists or is already frozen.
+    if maintenance_record.status != "in_progress":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only records in progress can be modified",
+        )
 
 # admin → can delete any maintenance part
 

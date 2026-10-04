@@ -1,3 +1,4 @@
+import logging
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -11,6 +12,8 @@ from app.core.dependencies import get_access_user, require_mechanic
 from app.core.query_filters import filter_by_user_access
 from app.core.query_params import get_sort_params, SortOrder
 from app.core.rate_limit import limiter
+
+logger = logging.getLogger(__name__)
 
 
 class VehicleSearchField(str, Enum):
@@ -57,16 +60,22 @@ def create_vehicle(
 
         user = db.query(User).filter(User.id == user_id).first()
 
-        if user is None:
+        if access["user"].role == "mechanic":
+            if user is None or user.role != "customer":
+                logger.warning(
+                    "create vehicle denied: user %s does not exist or is "
+                    "not a customer (mechanic %s)",
+                    user_id,
+                    access["user"].id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Not authorized to create this vehicle",
+                )
+        elif user is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found"
-            )
-
-        if access["user"].role == "mechanic" and user.role != "customer":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only create vehicles for customers"
             )
 
         verified = True
@@ -193,6 +202,11 @@ def get_vehicle(
     vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
     if vehicle is None:
+        logger.warning(
+            "access denied: vehicle %s does not exist (user %s)",
+            vehicle_id,
+            access["user"].id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this vehicle"
@@ -200,6 +214,12 @@ def get_vehicle(
 
     if access["user"].role == "customer":
         if vehicle.user_id != access["user"].id:
+            logger.warning(
+                "access denied: vehicle %s belongs to user %s (user %s)",
+                vehicle_id,
+                vehicle.user_id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to access this vehicle"
@@ -211,6 +231,12 @@ def get_vehicle(
         ).first()
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "access denied: vehicle %s has no customer owner "
+                "(mechanic %s)",
+                vehicle_id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to access this vehicle"
@@ -231,15 +257,14 @@ def verify_vehicle(
     vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
     if vehicle is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Vehicle not found"
+        logger.warning(
+            "verify denied: vehicle %s does not exist (user %s)",
+            vehicle_id,
+            current_user.id,
         )
-
-    if vehicle.verified:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Vehicle is already verified"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to verify this vehicle"
         )
 
     if current_user.role == "mechanic":
@@ -248,10 +273,24 @@ def verify_vehicle(
         ).first()
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "verify denied: vehicle %s has no customer owner "
+                "(mechanic %s)",
+                vehicle_id,
+                current_user.id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only verify customer vehicles"
+                detail="Not authorized to verify this vehicle"
             )
+
+    # State only after authorization: whoever may not verify gets 403 with
+    # the same body whether the vehicle is missing or already verified.
+    if vehicle.verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vehicle is already verified"
+        )
 
     vehicle.verified = True
 
@@ -277,6 +316,11 @@ def update_vehicle(
     vehicle_db = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
     if vehicle_db is None:
+        logger.warning(
+            "update denied: vehicle %s does not exist (user %s)",
+            vehicle_id,
+            access["user"].id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this vehicle"
@@ -284,11 +328,20 @@ def update_vehicle(
 
     if access["user"].role == "customer":
         if vehicle_db.user_id != access["user"].id:
+            logger.warning(
+                "update denied: vehicle %s belongs to user %s "
+                "(user %s)",
+                vehicle_id,
+                vehicle_db.user_id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to update this vehicle"
             )
 
+        # The owner already knows their own vehicle, so this state hint
+        # reveals nothing to anyone else.
         if vehicle_db.verified:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -301,9 +354,15 @@ def update_vehicle(
         ).first()
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "update denied: vehicle %s has no customer owner "
+                "(mechanic %s)",
+                vehicle_id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only modify customer vehicles"
+                detail="Not authorized to update this vehicle"
             )
 
     update_data = vehicle.model_dump(exclude_unset=True)
@@ -329,6 +388,11 @@ def replace_vehicle(
     vehicle_db = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
     if vehicle_db is None:
+        logger.warning(
+            "replace denied: vehicle %s does not exist (user %s)",
+            vehicle_id,
+            access["user"].id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to replace this vehicle"
@@ -336,11 +400,20 @@ def replace_vehicle(
 
     if access["user"].role == "customer":
         if vehicle_db.user_id != access["user"].id:
+            logger.warning(
+                "replace denied: vehicle %s belongs to user %s "
+                "(user %s)",
+                vehicle_id,
+                vehicle_db.user_id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to replace this vehicle"
             )
 
+        # The owner already knows their own vehicle, so this state hint
+        # reveals nothing to anyone else.
         if vehicle_db.verified:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -353,9 +426,15 @@ def replace_vehicle(
         ).first()
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "replace denied: vehicle %s has no customer owner "
+                "(mechanic %s)",
+                vehicle_id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only modify customer vehicles"
+                detail="Not authorized to replace this vehicle"
             )
 
     vehicle_db.make = vehicle_data.make
@@ -386,6 +465,11 @@ def delete_vehicle(
     vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 
     if vehicle is None:
+        logger.warning(
+            "delete denied: vehicle %s does not exist (user %s)",
+            vehicle_id,
+            access["user"].id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this vehicle"
@@ -393,11 +477,19 @@ def delete_vehicle(
 
     if access["user"].role == "customer":
         if vehicle.user_id != access["user"].id:
+            logger.warning(
+                "delete denied: vehicle %s belongs to user %s (user %s)",
+                vehicle_id,
+                vehicle.user_id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to delete this vehicle"
             )
 
+        # The owner already knows their own vehicle, so this state hint
+        # reveals nothing to anyone else.
         if vehicle.verified:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -405,9 +497,15 @@ def delete_vehicle(
             )
 
     elif access["user"].role == "mechanic":
+        logger.warning(
+            "delete denied: mechanics cannot delete vehicles "
+            "(mechanic %s, vehicle %s)",
+            access["user"].id,
+            vehicle_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Mechanics cannot delete vehicles"
+            detail="Not authorized to delete this vehicle"
         )
 
 # admin → puede eliminar cualquier vehículo
