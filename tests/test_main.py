@@ -24,6 +24,7 @@ def test_create_user():
             "name": "Test User",
             "email": "1pytest-user-001@example.com",
             "password": "password123",
+            "password_confirmation": "password123",
         },
     )
 
@@ -43,15 +44,8 @@ def test_database_connection(db):
     assert result.scalar() == 1
 
 
-def test_login():
-    client.post(
-        "/users/",
-        json={
-            "name": "Login User",
-            "email": "login-test@example.com",
-            "password": "password123",
-        },
-    )
+def test_login(accounts):
+    accounts.register(client, "Login User", "login-test@example.com")
 
     response = client.post(
         "/users/login",
@@ -65,8 +59,14 @@ def test_login():
 
     data = response.json()
 
-    assert "access_token" in data
-    assert data["token_type"] == "bearer"
+    # Login does not grant a token: it issues a 2FA challenge first.
+    assert data["requires_2fa"] is True
+    assert "access_token" not in data
+
+    # The emailed code is what finally grants the token.
+    token = accounts.login(client, "login-test@example.com")
+
+    assert token
 
 
 def test_get_current_user_without_token():
@@ -75,25 +75,9 @@ def test_get_current_user_without_token():
     assert response.status_code == 401
 
 
-def test_get_current_user_with_token():
-    client.post(
-        "/users/",
-        json={
-            "name": "Authenticated User",
-            "email": "auth-test@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_response = client.post(
-        "/users/login",
-        data={
-            "username": "auth-test@example.com",
-            "password": "password123",
-        },
-    )
-
-    token = login_response.json()["access_token"]
+def test_get_current_user_with_token(accounts):
+    accounts.register(client, "Authenticated User", "auth-test@example.com")
+    token = accounts.login(client, "auth-test@example.com")
 
     response = client.get(
         "/users/me",
@@ -110,25 +94,9 @@ def test_get_current_user_with_token():
     assert data["name"] == "Authenticated User"
 
 
-def test_create_vehicle():
-    client.post(
-        "/users/",
-        json={
-            "name": "Vehicle Owner",
-            "email": "vehicle-owner@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_response = client.post(
-        "/users/login",
-        data={
-            "username": "vehicle-owner@example.com",
-            "password": "password123",
-        },
-    )
-
-    token = login_response.json()["access_token"]
+def test_create_vehicle(accounts):
+    accounts.register(client, "Vehicle Owner", "vehicle-owner@example.com")
+    token = accounts.login(client, "vehicle-owner@example.com")
 
     response = client.post(
         "/vehicles/",
@@ -155,26 +123,10 @@ def test_create_vehicle():
     assert data["mileage"] == 134000
 
 
-def test_user_cannot_access_another_users_vehicle():
+def test_user_cannot_access_another_users_vehicle(accounts):
     # Crear usuario 1
-    client.post(
-        "/users/",
-        json={
-            "name": "Owner One",
-            "email": "owner-one@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_one = client.post(
-        "/users/login",
-        data={
-            "username": "owner-one@example.com",
-            "password": "password123",
-        },
-    )
-
-    token_one = login_one.json()["access_token"]
+    accounts.register(client, "Owner One", "owner-one@example.com")
+    token_one = accounts.login(client, "owner-one@example.com")
 
     # Crear vehículo del usuario 1
     vehicle_response = client.post(
@@ -194,24 +146,8 @@ def test_user_cannot_access_another_users_vehicle():
     vehicle_id = vehicle_response.json()["id"]
 
     # Crear usuario 2
-    client.post(
-        "/users/",
-        json={
-            "name": "Owner Two",
-            "email": "owner-two@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_two = client.post(
-        "/users/login",
-        data={
-            "username": "owner-two@example.com",
-            "password": "password123",
-        },
-    )
-
-    token_two = login_two.json()["access_token"]
+    accounts.register(client, "Owner Two", "owner-two@example.com")
+    token_two = accounts.login(client, "owner-two@example.com")
 
     # Usuario 2 intenta acceder al vehículo del usuario 1
     response = client.get(
@@ -226,25 +162,9 @@ def test_user_cannot_access_another_users_vehicle():
     assert response.json()["detail"] == "Not authorized to access this vehicle"
 
 
-def test_user_can_access_own_vehicle():
-    client.post(
-        "/users/",
-        json={
-            "name": "Vehicle Owner",
-            "email": "own-vehicle@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_response = client.post(
-        "/users/login",
-        data={
-            "username": "own-vehicle@example.com",
-            "password": "password123",
-        },
-    )
-
-    token = login_response.json()["access_token"]
+def test_user_can_access_own_vehicle(accounts):
+    accounts.register(client, "Vehicle Owner", "own-vehicle@example.com")
+    token = accounts.login(client, "own-vehicle@example.com")
 
     vehicle_response = client.post(
         "/vehicles/",
@@ -278,26 +198,10 @@ def test_user_can_access_own_vehicle():
     assert data["model"] == "F-150"
 
 
-def test_admin_can_access_another_users_vehicle(db):
+def test_admin_can_access_another_users_vehicle(db, accounts):
     # Crear usuario normal
-    client.post(
-        "/users/",
-        json={
-            "name": "Vehicle Owner",
-            "email": "admin-test-owner@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_owner = client.post(
-        "/users/login",
-        data={
-            "username": "admin-test-owner@example.com",
-            "password": "password123",
-        },
-    )
-
-    owner_token = login_owner.json()["access_token"]
+    accounts.register(client, "Vehicle Owner", "admin-test-owner@example.com")
+    owner_token = accounts.login(client, "admin-test-owner@example.com")
 
     # Crear vehículo del usuario normal
     vehicle_response = client.post(
@@ -317,28 +221,21 @@ def test_admin_can_access_another_users_vehicle(db):
     vehicle_id = vehicle_response.json()["id"]
 
     # Crear admin directamente en la BD de test
+    # email_verified=True: direct inserts bypass the registration flow, and
+    # the login endpoint refuses unverified emails.
     admin = User(
         name="Admin User",
         email="admin-test@example.com",
         password_hash=hash_password("password123"),
         role="admin",
+        email_verified=True,
     )
 
     db.add(admin)
     db.commit()
     db.refresh(admin)
 
-    login_admin = client.post(
-    "/users/login",
-        data={
-            "username": "admin-test@example.com",
-            "password": "password123",
-        },
-    )
-
-    assert login_admin.status_code == 200
-
-    admin_token = login_admin.json()["access_token"]
+    admin_token = accounts.login(client, "admin-test@example.com")
 
     response = client.get(
     f"/vehicles/{vehicle_id}",
@@ -355,25 +252,9 @@ def test_admin_can_access_another_users_vehicle(db):
     assert data["make"] == "Toyota"
     assert data["model"] == "Tacoma"
 
-def test_user_cannot_update_another_users_vehicle():
-    client.post(
-        "/users/",
-        json={
-            "name": "Owner One",
-            "email": "update-owner-one@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_one = client.post(
-        "/users/login",
-        data={
-            "username": "update-owner-one@example.com",
-            "password": "password123",
-        },
-    )
-
-    token_one = login_one.json()["access_token"]
+def test_user_cannot_update_another_users_vehicle(accounts):
+    accounts.register(client, "Owner One", "update-owner-one@example.com")
+    token_one = accounts.login(client, "update-owner-one@example.com")
 
     vehicle_response = client.post(
         "/vehicles/",
@@ -391,24 +272,8 @@ def test_user_cannot_update_another_users_vehicle():
 
     vehicle_id = vehicle_response.json()["id"]
 
-    client.post(
-        "/users/",
-        json={
-            "name": "Owner Two",
-            "email": "update-owner-two@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_two = client.post(
-        "/users/login",
-        data={
-            "username": "update-owner-two@example.com",
-            "password": "password123",
-        },
-    )
-
-    token_two = login_two.json()["access_token"]
+    accounts.register(client, "Owner Two", "update-owner-two@example.com")
+    token_two = accounts.login(client, "update-owner-two@example.com")
 
     response = client.patch(
         f"/vehicles/{vehicle_id}",
@@ -422,25 +287,9 @@ def test_user_cannot_update_another_users_vehicle():
 
     assert response.status_code == 403
 
-def test_user_can_update_own_vehicle():
-    client.post(
-        "/users/",
-        json={
-            "name": "Vehicle Owner",
-            "email": "update-own@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_response = client.post(
-        "/users/login",
-        data={
-            "username": "update-own@example.com",
-            "password": "password123",
-        },
-    )
-
-    token = login_response.json()["access_token"]
+def test_user_can_update_own_vehicle(accounts):
+    accounts.register(client, "Vehicle Owner", "update-own@example.com")
+    token = accounts.login(client, "update-own@example.com")
 
     vehicle_response = client.post(
         "/vehicles/",
@@ -475,25 +324,9 @@ def test_user_can_update_own_vehicle():
     assert data["id"] == vehicle_id
     assert data["mileage"] == 150000
 
-def test_user_cannot_delete_another_users_vehicle():
-    client.post(
-        "/users/",
-        json={
-            "name": "Owner One",
-            "email": "delete-owner-one@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_one = client.post(
-        "/users/login",
-        data={
-            "username": "delete-owner-one@example.com",
-            "password": "password123",
-        },
-    )
-
-    token_one = login_one.json()["access_token"]
+def test_user_cannot_delete_another_users_vehicle(accounts):
+    accounts.register(client, "Owner One", "delete-owner-one@example.com")
+    token_one = accounts.login(client, "delete-owner-one@example.com")
 
     vehicle_response = client.post(
         "/vehicles/",
@@ -511,24 +344,8 @@ def test_user_cannot_delete_another_users_vehicle():
 
     vehicle_id = vehicle_response.json()["id"]
 
-    client.post(
-        "/users/",
-        json={
-            "name": "Owner Two",
-            "email": "delete-owner-two@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_two = client.post(
-        "/users/login",
-        data={
-            "username": "delete-owner-two@example.com",
-            "password": "password123",
-        },
-    )
-
-    token_two = login_two.json()["access_token"]
+    accounts.register(client, "Owner Two", "delete-owner-two@example.com")
+    token_two = accounts.login(client, "delete-owner-two@example.com")
 
     response = client.delete(
         f"/vehicles/{vehicle_id}",
@@ -539,25 +356,9 @@ def test_user_cannot_delete_another_users_vehicle():
 
     assert response.status_code == 403
 
-def test_user_can_delete_own_vehicle():
-    client.post(
-        "/users/",
-        json={
-            "name": "Delete Owner",
-            "email": "delete-own@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_response = client.post(
-        "/users/login",
-        data={
-            "username": "delete-own@example.com",
-            "password": "password123",
-        },
-    )
-
-    token = login_response.json()["access_token"]
+def test_user_can_delete_own_vehicle(accounts):
+    accounts.register(client, "Delete Owner", "delete-own@example.com")
+    token = accounts.login(client, "delete-own@example.com")
 
     vehicle_response = client.post(
         "/vehicles/",
@@ -591,27 +392,13 @@ def test_user_can_delete_own_vehicle():
         },
     )
 
-    assert response.status_code == 404
+    # 403 is deliberate: a missing vehicle must be indistinguishable from
+    # one that belongs to someone else, so no one can probe which IDs exist.
+    assert response.status_code == 403
 
-def test_create_vehicle_with_negative_mileage():
-    client.post(
-        "/users/",
-        json={
-            "name": "Validation User",
-            "email": "validation-user@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_response = client.post(
-        "/users/login",
-        data={
-            "username": "validation-user@example.com",
-            "password": "password123",
-        },
-    )
-
-    token = login_response.json()["access_token"]
+def test_create_vehicle_with_negative_mileage(accounts):
+    accounts.register(client, "Validation User", "validation-user@example.com")
+    token = accounts.login(client, "validation-user@example.com")
 
     response = client.post(
         "/vehicles/",
@@ -629,25 +416,11 @@ def test_create_vehicle_with_negative_mileage():
 
     assert response.status_code == 422
 
-def test_update_vehicle_with_negative_mileage():
-    client.post(
-        "/users/",
-        json={
-            "name": "Update Validation User",
-            "email": "update-validation@example.com",
-            "password": "password123",
-        },
+def test_update_vehicle_with_negative_mileage(accounts):
+    accounts.register(
+        client, "Update Validation User", "update-validation@example.com"
     )
-
-    login_response = client.post(
-        "/users/login",
-        data={
-            "username": "update-validation@example.com",
-            "password": "password123",
-        },
-    )
-
-    token = login_response.json()["access_token"]
+    token = accounts.login(client, "update-validation@example.com")
 
     vehicle_response = client.post(
         "/vehicles/",
@@ -677,25 +450,9 @@ def test_update_vehicle_with_negative_mileage():
 
     assert response.status_code == 422
 
-def test_create_vehicle_with_invalid_mileage_type():
-    client.post(
-        "/users/",
-        json={
-            "name": "Type Validation User",
-            "email": "type-validation@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_response = client.post(
-        "/users/login",
-        data={
-            "username": "type-validation@example.com",
-            "password": "password123",
-        },
-    )
-
-    token = login_response.json()["access_token"]
+def test_create_vehicle_with_invalid_mileage_type(accounts):
+    accounts.register(client, "Type Validation User", "type-validation@example.com")
+    token = accounts.login(client, "type-validation@example.com")
 
     response = client.post(
         "/vehicles/",
@@ -714,25 +471,9 @@ def test_create_vehicle_with_invalid_mileage_type():
     assert response.status_code == 422
 
 
-def test_update_vehicle_with_invalid_mileage_type():
-    client.post(
-        "/users/",
-        json={
-            "name": "Update Type User",
-            "email": "update-type@example.com",
-            "password": "password123",
-        },
-    )
-
-    login_response = client.post(
-        "/users/login",
-        data={
-            "username": "update-type@example.com",
-            "password": "password123",
-        },
-    )
-
-    token = login_response.json()["access_token"]
+def test_update_vehicle_with_invalid_mileage_type(accounts):
+    accounts.register(client, "Update Type User", "update-type@example.com")
+    token = accounts.login(client, "update-type@example.com")
 
     vehicle_response = client.post(
         "/vehicles/",
