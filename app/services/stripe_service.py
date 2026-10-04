@@ -33,3 +33,17 @@ def create_checkout_session(
             "payment_id": str(payment_id),
         },
     )
+
+
+def construct_event(payload: bytes, signature: str):
+    """
+    Validate the Stripe-Signature header against the raw request body.
+
+    Returns the event only when the HMAC signature matches, which proves
+    the message really came from Stripe and was not modified in transit.
+    """
+    return stripe.Webhook.construct_event(
+        payload,
+        signature,
+        settings.stripe_webhook_secret,
+    )

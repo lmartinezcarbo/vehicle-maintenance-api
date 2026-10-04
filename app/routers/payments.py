@@ -1,5 +1,9 @@
+import logging
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
+from stripe import SignatureVerificationError
 
 from app.database import get_db
 from app.schemas import PaymentCreate, PaymentResponse
@@ -7,7 +11,9 @@ from app.models import Payment, MaintenanceRecord, Vehicle
 from app.core.dependencies import get_current_user
 from app.core.rate_limit import limiter
 from app.services.maintenance_price import calculate_maintenance_total
-from app.services.stripe_service import create_checkout_session
+from app.services.stripe_service import create_checkout_session, construct_event
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/payments",
@@ -110,3 +116,77 @@ def create_payment(
         "created_at": payment.created_at,
         "paid_at": payment.paid_at,
     }
+
+
+@router.post("/webhook")
+async def stripe_webhook(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Stripe sends this request. It is authenticated by signature, not JWT.
+    """
+    payload = await request.body()
+    signature = request.headers.get("Stripe-Signature", "")
+
+    try:
+        event = construct_event(payload, signature)
+    except SignatureVerificationError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid webhook signature",
+        )
+
+    event_data = event.to_dict()
+    event_type = event_data.get("type")
+
+    if event_type not in (
+        "checkout.session.completed",
+        "checkout.session.async_payment_failed",
+        "checkout.session.expired",
+    ):
+        return {"received": True}
+
+    session = (event_data.get("data") or {}).get("object") or {}
+    metadata = session.get("metadata") or {}
+
+    payment_id = str(metadata.get("payment_id", ""))
+    if not payment_id.isdigit():
+        logger.error("Webhook event %s without a valid payment_id", event_data.get("id"))
+        return {"received": True}
+
+    payment = (
+        db.query(Payment)
+        .filter(Payment.id == int(payment_id))
+        .first()
+    )
+
+    if payment is None or payment.status != "pending":
+        return {"received": True}
+
+    # The price we froze must match what Stripe actually charged.
+    amount_total = session.get("amount_total")
+    if amount_total is None or int(payment.amount * 100) != amount_total:
+        logger.error(
+            "Webhook amount mismatch for payment %s: expected %s, got %s",
+            payment.id,
+            payment.amount,
+            amount_total,
+        )
+        return {"received": True}
+
+    if event_type == "checkout.session.completed":
+        if session.get("payment_status") != "paid":
+            return {"received": True}
+        payment.status = "paid"
+        payment.paid_at = datetime.now(timezone.utc)
+        if session.get("payment_intent"):
+            payment.stripe_payment_intent_id = session["payment_intent"]
+    elif event_type == "checkout.session.async_payment_failed":
+        payment.status = "failed"
+    else:
+        payment.status = "expired"
+
+    db.commit()
+
+    return {"received": True}
