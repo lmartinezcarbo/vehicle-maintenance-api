@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from app.models.user import User
+from app.models.one_time_code import OneTimeCode
 from app.core.security import hash_password
 from app.main import app
 
@@ -502,3 +503,108 @@ def test_update_vehicle_with_invalid_mileage_type(accounts):
     )
 
     assert response.status_code == 422
+
+
+# --------------------------------------------------------------------------
+# Registration survives or refuses - never half-registers
+# --------------------------------------------------------------------------
+
+
+class ExplodingBrevoClient:
+    """The email provider at its worst: every send raises."""
+
+    def __init__(self):
+        class _TransactionalEmails:
+            def send_transac_email(self, **kwargs):
+                raise RuntimeError("Brevo is down")
+
+        self.transactional_emails = _TransactionalEmails()
+
+
+def test_registration_is_undone_when_the_email_cannot_be_sent(
+    db, monkeypatch
+):
+    monkeypatch.setattr("app.services.email.client", ExplodingBrevoClient())
+
+    response = client.post(
+        "/users/",
+        json={
+            "name": "Offline User",
+            "email": "offline@example.com",
+            "password": "password123",
+            "password_confirmation": "password123",
+        },
+    )
+
+    # The client must learn, or it waits forever for a code that no
+    # one is ever going to receive.
+    assert response.status_code == 503
+    # And nothing half-registered is left behind for a retry to collide
+    # with: no account, no orphaned codes.
+    assert (
+        db.query(User).filter(User.email == "offline@example.com").first()
+        is None
+    )
+    assert db.query(OneTimeCode).count() == 0
+
+
+def test_resend_verification_issues_a_new_code_and_kills_the_old_one(
+    accounts,
+):
+    response = client.post(
+        "/users/",
+        json={
+            "name": "Resend User",
+            "email": "resend@example.com",
+            "password": "password123",
+            "password_confirmation": "password123",
+        },
+    )
+    assert response.status_code == 201
+
+    first = accounts.last_code("resend@example.com")
+
+    resend = client.post(
+        "/users/resend-verification",
+        json={"email": "resend@example.com"},
+    )
+    assert resend.status_code == 200
+
+    second = accounts.last_code("resend@example.com")
+    assert second != first
+
+    stale = client.post(
+        "/users/verify-email",
+        json={"email": "resend@example.com", "code": first},
+    )
+    assert stale.status_code == 400
+
+    fresh = client.post(
+        "/users/verify-email",
+        json={"email": "resend@example.com", "code": second},
+    )
+    assert fresh.status_code == 200
+
+
+def test_resend_verification_says_503_when_the_email_fails(
+    accounts, monkeypatch
+):
+    response = client.post(
+        "/users/",
+        json={
+            "name": "Resend Down",
+            "email": "resend-down@example.com",
+            "password": "password123",
+            "password_confirmation": "password123",
+        },
+    )
+    assert response.status_code == 201
+
+    monkeypatch.setattr("app.services.email.client", ExplodingBrevoClient())
+
+    resend = client.post(
+        "/users/resend-verification",
+        json={"email": "resend-down@example.com"},
+    )
+
+    assert resend.status_code == 503

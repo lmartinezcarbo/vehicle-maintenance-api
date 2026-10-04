@@ -135,8 +135,19 @@ def create_user(
         )
     except Exception:
         logger.exception(
-            "User created successfully, but verification email could not be sent to %s",
+            "registration of %s undone: the verification email could not be sent",
             new_user.email,
+        )
+        # No correo, no cuenta. The codes cascade with the user, so this
+        # single delete leaves nothing half-registered behind: a retry
+        # then answers 503 instead of colliding with a 409 for an account
+        # nobody can ever verify.
+        db.delete(new_user)
+        db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to send verification code",
         )
 
     return new_user
