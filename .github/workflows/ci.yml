@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Same major version as docker-compose.yml.
+        image: postgres:17
+        env:
+          POSTGRES_USER: vehicle
+          POSTGRES_PASSWORD: vehicle
+          POSTGRES_DB: vehicle_maintenance_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # .env is gitignored, so CI declares its own values. The suite
+      # never calls out: send_email is patched, the webhook tests sign
+      # their own payloads with whatever secret is configured here, and
+      # Stripe is faked - these only have to parse and be non-empty.
+      SECRET_KEY: ci-only-not-a-real-secret
+      BREVO_API_KEY: ci-dummy-brevo-key
+      EMAIL_FROM: ci@example.com
+      STRIPE_SECRET_KEY: sk_test_ci_dummy
+      STRIPE_SUCCESS_URL: http://localhost:3000/success
+      STRIPE_CANCEL_URL: http://localhost:3000/cancel
+      STRIPE_WEBHOOK_SECRET: whsec_ci_dummy
+      DATABASE_URL: postgresql+psycopg://vehicle:vehicle@localhost:5432/vehicle_maintenance
+      TEST_DATABASE_URL: postgresql+psycopg://vehicle:vehicle@localhost:5432/vehicle_maintenance_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the test suite
+        # conftest.py drops the test schema, runs alembic upgrade head
+        # and rebuilds it exactly like production does.
+        run: pytest -q
+
+      - name: Migrations match the models
+        # The suite already migrated the test database to head, so this
+        # only reports drift between alembic/versions and the models.
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+        run: alembic check
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Report known vulnerabilities
+        # pip_audit ships in requirements.txt; a red job here means a
+        # pinned dependency has a published advisory with a fix.
+        run: pip-audit -r requirements.txt
