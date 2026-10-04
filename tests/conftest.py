@@ -143,6 +143,28 @@ def pending_payment(db, ready_record):
 CODE_RE = re.compile(r"<h2>\s*(\d{4,8})\s*</h2>")
 
 
+class FakeBrevoClient:
+    """
+    Stand-in for the Brevo SDK client: no real email ever leaves a run.
+
+    The fake sits at the client instead of at each router. Patching per
+    module had a hole the moment a third module learned to send email -
+    it reached the real service during a test run - so the double lives
+    where the process actually touches the outside world.
+    """
+
+    def __init__(self, outbox):
+        class _TransactionalEmails:
+            def send_transac_email(
+                self, sender=None, to=None, subject="", html_content="", **kwargs
+            ):
+                outbox.append(
+                    {"to": to[0].email, "subject": subject, "html": html_content}
+                )
+
+        self.transactional_emails = _TransactionalEmails()
+
+
 @pytest.fixture(autouse=True)
 def sent_emails(monkeypatch):
     """
@@ -155,11 +177,7 @@ def sent_emails(monkeypatch):
     """
     outbox = []
 
-    def fake_send_email(to_email, subject, html_content, **kwargs):
-        outbox.append({"to": to_email, "subject": subject, "html": html_content})
-
-    monkeypatch.setattr("app.routers.users.send_email", fake_send_email)
-    monkeypatch.setattr("app.routers.payments.send_email", fake_send_email)
+    monkeypatch.setattr("app.services.email.client", FakeBrevoClient(outbox))
     monkeypatch.setattr(limiter, "enabled", False)
 
     return outbox
