@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from stripe import SignatureVerificationError
 
 from app.database import get_db
-from app.schemas import PaymentCreate, PaymentResponse
+from app.schemas import PaymentCreate, PaymentResponse, PaymentDetailResponse
 from app.models import Payment, MaintenanceRecord, Vehicle
 from app.core.dependencies import get_current_user
 from app.core.rate_limit import limiter
@@ -116,6 +116,43 @@ def create_payment(
         "created_at": payment.created_at,
         "paid_at": payment.paid_at,
     }
+
+
+@router.get("/{payment_id}", response_model=PaymentDetailResponse)
+def get_payment(
+    payment_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Read the current state of a payment.
+
+    The frontend polls this after coming back from Stripe until the webhook
+    has flipped the status to "paid".
+    """
+    payment = (
+        db.query(Payment)
+        .filter(Payment.id == payment_id)
+        .first()
+    )
+
+    # Same policy as vehicles: a payment that does not exist and one owned by
+    # somebody else must be indistinguishable, so ids cannot be probed.
+    if payment is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this payment",
+        )
+
+    vehicle = payment.maintenance_record.vehicle
+
+    if vehicle.user_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this payment",
+        )
+
+    return payment
 
 
 @router.post("/webhook")

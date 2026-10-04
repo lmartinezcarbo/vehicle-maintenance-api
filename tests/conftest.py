@@ -1,5 +1,7 @@
 import os
 import re
+from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,6 +13,7 @@ from sqlalchemy import create_engine, delete
 from sqlalchemy.orm import sessionmaker
 
 from app.core.rate_limit import limiter
+from app.core.security import hash_password
 from app.database import Base, get_db
 from app.main import app
 from app.models import *
@@ -75,6 +78,56 @@ def clean_database():
 
     finally:
         db.close()
+
+
+@pytest.fixture
+def pending_payment(db):
+    """A ready maintenance record with a payment waiting for the webhook."""
+    owner = User(
+        name="Webhook Owner",
+        email="webhook-owner@example.com",
+        password_hash=hash_password("password123"),
+        role="customer",
+        email_verified=True,
+    )
+    db.add(owner)
+    db.flush()
+
+    vehicle = Vehicle(
+        user_id=owner.id,
+        make="Ford",
+        model="F-150",
+        year=2019,
+        vin="WEBHOOKVEHICLE01",
+        mileage=12000,
+        verified=True,
+    )
+    db.add(vehicle)
+    db.flush()
+
+    record = MaintenanceRecord(
+        vehicle_id=vehicle.id,
+        service_type="repair",
+        description="Brake pads",
+        mileage=12000,
+        service_date=datetime.now(timezone.utc),
+        labor_cost=Decimal("50.00"),
+        status="ready",
+    )
+    db.add(record)
+    db.flush()
+
+    payment = Payment(
+        maintenance_record_id=record.id,
+        amount=Decimal("50.00"),
+        currency="usd",
+        status="pending",
+    )
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+
+    return payment
 
 
 CODE_RE = re.compile(r"<h2>\s*(\d{4,8})\s*</h2>")

@@ -20,4 +20,4 @@ from app.schemas.expense import (
     ExpenseUpdate,
     ExpensePut
 )
-from app.schemas.payment import PaymentCreate, PaymentResponse
+from app.schemas.payment import PaymentCreate, PaymentResponse, PaymentDetailResponse

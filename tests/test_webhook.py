@@ -2,16 +2,12 @@ import hashlib
 import hmac
 import json
 import time
-from datetime import datetime, timezone
-from decimal import Decimal
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
-from app.core.security import hash_password
 from app.main import app
-from app.models import MaintenanceRecord, Payment, User, Vehicle
+from app.models import Payment
 
 client = TestClient(app)
 
@@ -65,55 +61,6 @@ def completed_event(payment: Payment, *, amount_total: int, payment_id=None,
 def reload(db, payment):
     db.expire_all()
     return db.query(Payment).filter(Payment.id == payment.id).one()
-
-
-@pytest.fixture
-def pending_payment(db):
-    owner = User(
-        name="Webhook Owner",
-        email="webhook-owner@example.com",
-        password_hash=hash_password("password123"),
-        role="customer",
-        email_verified=True,
-    )
-    db.add(owner)
-    db.flush()
-
-    vehicle = Vehicle(
-        user_id=owner.id,
-        make="Ford",
-        model="F-150",
-        year=2019,
-        vin="WEBHOOKVEHICLE01",
-        mileage=12000,
-        verified=True,
-    )
-    db.add(vehicle)
-    db.flush()
-
-    record = MaintenanceRecord(
-        vehicle_id=vehicle.id,
-        service_type="repair",
-        description="Brake pads",
-        mileage=12000,
-        service_date=datetime.now(timezone.utc),
-        labor_cost=Decimal("50.00"),
-        status="ready",
-    )
-    db.add(record)
-    db.flush()
-
-    payment = Payment(
-        maintenance_record_id=record.id,
-        amount=Decimal("50.00"),
-        currency="usd",
-        status="pending",
-    )
-    db.add(payment)
-    db.commit()
-    db.refresh(payment)
-
-    return payment
 
 
 def test_valid_signature_marks_payment_as_paid(pending_payment, db):
@@ -243,3 +190,22 @@ def test_failed_async_payment_marks_payment_failed(pending_payment, db):
 
     assert response.status_code == 200
     assert reload(db, pending_payment).status == "failed"
+
+
+def test_polling_endpoint_reflects_what_the_webhook_did(pending_payment, db, accounts):
+    """The whole loop: webhook updates the row, GET reports it to the client."""
+    token = accounts.login(client, "webhook-owner@example.com")
+
+    cents = int(pending_payment.amount * 100)
+    assert send(completed_event(pending_payment, amount_total=cents)).status_code == 200
+
+    response = client.get(
+        f"/payments/{pending_payment.id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["status"] == "paid"
+    assert data["paid_at"] is not None
