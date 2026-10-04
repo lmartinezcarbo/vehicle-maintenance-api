@@ -39,7 +39,11 @@ router = APIRouter(
 )
 
 
-@router.post("/", response_model=MaintenanceRecordResponse)
+@router.post(
+    "/",
+    response_model=MaintenanceRecordResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 @limiter.limit("20/minute")
 def create_maintenance_record(
     request: Request,

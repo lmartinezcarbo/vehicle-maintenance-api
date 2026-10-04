@@ -22,5 +22,10 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        # Never return a connection with a failed transaction still open:
+        # the next request would inherit it.
+        db.rollback()
+        raise
     finally:
         db.close()

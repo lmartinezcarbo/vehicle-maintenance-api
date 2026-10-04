@@ -41,7 +41,11 @@ router = APIRouter(
 )
 
 
-@router.post("/", response_model=MaintenancePartResponse)
+@router.post(
+    "/",
+    response_model=MaintenancePartResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 @limiter.limit("20/minute")
 def create_maintenance_part(
     request: Request,

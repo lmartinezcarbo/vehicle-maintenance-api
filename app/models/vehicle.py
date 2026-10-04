@@ -53,11 +53,15 @@ class Vehicle(Base):
     )
 
     maintenance_records: Mapped[list["MaintenanceRecord"]] = relationship(
-        back_populates="vehicle"
+        back_populates="vehicle",
+        # ON DELETE RESTRICT lives in the database; the ORM must not turn a
+        # "still referenced" refusal into a null write.
+        passive_deletes=True,
     )
 
     expenses: Mapped[list["Expense"]] = relationship(
-        back_populates="vehicle"
+        back_populates="vehicle",
+        passive_deletes=True,
     )
 
     __table_args__ = (

@@ -33,7 +33,9 @@ class Part(Base):
         nullable=True,
     )
     maintenance_parts: Mapped[list["MaintenancePart"]] = relationship(
-    back_populates="part"
+    back_populates="part",
+    # ON DELETE RESTRICT: refuse in the database, do not null here.
+    passive_deletes=True,
 )
     __table_args__ = (
         UniqueConstraint(

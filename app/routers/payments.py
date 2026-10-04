@@ -2,6 +2,8 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from stripe import SignatureVerificationError
 
@@ -28,6 +30,7 @@ router = APIRouter(
 @router.post(
     "/",
     response_model=PaymentResponse,
+    status_code=status.HTTP_201_CREATED,
 )
 @limiter.limit("10/minute")
 def create_payment(
@@ -97,19 +100,26 @@ def create_payment(
     # same checkout back makes POST /payments/ idempotent, so a retry can
     # never start a second charge for one record.
     if open_checkout is not None:
-        return {
-            "id": open_checkout.id,
-            "maintenance_record_id": open_checkout.maintenance_record_id,
-            "amount": open_checkout.amount,
-            "currency": open_checkout.currency,
-            "status": open_checkout.status,
-            "stripe_checkout_session_id": open_checkout.stripe_checkout_session_id,
-            "checkout_url": get_checkout_url(
-                open_checkout.stripe_checkout_session_id
+        # Nothing new was created here, so this hand-back answers 200 while
+        # a first payment answers 201.
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=jsonable_encoder(
+                {
+                    "id": open_checkout.id,
+                    "maintenance_record_id": open_checkout.maintenance_record_id,
+                    "amount": open_checkout.amount,
+                    "currency": open_checkout.currency,
+                    "status": open_checkout.status,
+                    "stripe_checkout_session_id": open_checkout.stripe_checkout_session_id,
+                    "checkout_url": get_checkout_url(
+                        open_checkout.stripe_checkout_session_id
+                    ),
+                    "created_at": open_checkout.created_at,
+                    "paid_at": open_checkout.paid_at,
+                }
             ),
-            "created_at": open_checkout.created_at,
-            "paid_at": open_checkout.paid_at,
-        }
+        )
 
     total_cost = calculate_maintenance_total(
         db=db,

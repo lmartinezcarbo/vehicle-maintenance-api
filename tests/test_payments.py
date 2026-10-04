@@ -121,7 +121,7 @@ def test_first_checkout_is_created_for_a_ready_record(
         headers=auth(owner_token),
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     data = response.json()
     assert data["status"] == "pending"

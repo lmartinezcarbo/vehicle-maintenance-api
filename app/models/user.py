@@ -43,11 +43,16 @@ class User(Base):
     )
     
     vehicles: Mapped[list["Vehicle"]] = relationship(
-        back_populates="user"
+        back_populates="user",
+        # vehicles.user_id is ON DELETE RESTRICT: let the database refuse
+        # the delete instead of nulling the foreign key here.
+        passive_deletes=True,
     )
 
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
-        back_populates="user"
+        back_populates="user",
+        # ON DELETE CASCADE: a deleted user takes their sessions with them.
+        passive_deletes=True,
     )
 
     one_time_codes: Mapped[list["OneTimeCode"]] = relationship(

@@ -4,13 +4,18 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 import logging
 
+from sqlalchemy.exc import DataError, IntegrityError
+
 from app.routers.users import router as users_router
 from app.routers.vehicles import router as vehicles_router
 from app.routers.maintenance_records import router as maintenance_records_router
 from app.routers.part import router as part_router
 from app.routers.maintenance_parts import router as maintenance_part_router
 from app.routers.expense import router as expense_router
-from app.core.exception_handlers import general_exception_handler
+from app.core.exception_handlers import (
+    database_error_handler,
+    general_exception_handler,
+)
 from app.routers.health import router as health_router
 from app.core.rate_limit import limiter
 from app.core.config import settings
@@ -47,6 +52,8 @@ app.include_router(maintenance_records_router)
 app.include_router(part_router)
 app.include_router(maintenance_part_router)
 app.include_router(expense_router)
+app.add_exception_handler(IntegrityError, database_error_handler)
+app.add_exception_handler(DataError, database_error_handler)
 app.add_exception_handler(Exception, general_exception_handler)
 app.include_router(health_router)
 app.include_router(payments_router)

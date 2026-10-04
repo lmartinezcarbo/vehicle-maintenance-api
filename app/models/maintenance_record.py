@@ -70,10 +70,13 @@ class MaintenanceRecord(Base):
         cascade="all, delete-orphan",
     )
     expenses: Mapped[list["Expense"]] = relationship(
-        back_populates="maintenance_record"
+        back_populates="maintenance_record",
+        passive_deletes=True,
     )
     payments: Mapped[list["Payment"]] = relationship(
-        back_populates="maintenance_record"
+        back_populates="maintenance_record",
+        # ON DELETE RESTRICT: a settled payment outlives any edit here.
+        passive_deletes=True,
     )
     __table_args__ = (
     CheckConstraint(
