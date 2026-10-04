@@ -213,19 +213,66 @@ def test_a_completed_record_cannot_be_paid(ready_record, owner_token, db):
     assert payments_for(db, ready_record.id) == 0
 
 
-def test_a_completed_record_cannot_be_deleted(ready_record, owner_token, db):
+def test_a_completed_record_cannot_be_deleted(ready_record, admin_token, db):
+    """Only an authorized user reaches the state guard: they get 400."""
     ready_record.status = "completed"
     db.commit()
 
     response = client.delete(
         f"/maintenance-records/{ready_record.id}",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
     )
 
     assert response.status_code == 400
     assert db.query(MaintenanceRecord).filter(
         MaintenanceRecord.id == ready_record.id
     ).count() == 1
+
+
+def test_a_customer_cannot_learn_the_records_state(
+    owner_token, ready_record, db
+):
+    """Authorization before state: whoever may not touch the record gets
+    the same 403 - same code *and* same message - whether it does not
+    exist, is open or is frozen."""
+    ready_record.status = "completed"
+    db.commit()
+
+    put_body = {
+        "service_type": "repair",
+        "description": "poked",
+        "mileage": 12000,
+        "service_date": "2026-10-04T00:00:00Z",
+        "labor_cost": "10.00",
+    }
+    attempts = [
+        ("PATCH", f"/maintenance-records/{ready_record.id}", {"description": "x"}),
+        ("PUT", f"/maintenance-records/{ready_record.id}", put_body),
+        ("DELETE", f"/maintenance-records/{ready_record.id}", None),
+        ("PATCH", "/maintenance-records/999999", {"description": "x"}),
+        ("PUT", "/maintenance-records/999999", put_body),
+        ("DELETE", "/maintenance-records/999999", None),
+    ]
+
+    results = {}
+    for method, url, payload in attempts:
+        response = client.request(
+            method, url, json=payload, headers=auth(owner_token)
+        )
+        results[(method, "missing" if "999999" in url else "existing")] = (
+            response.status_code,
+            response.json()["detail"],
+        )
+
+    expected = {
+        "PATCH": "Not authorized to update this maintenance record",
+        "PUT": "Not authorized to replace this maintenance record",
+        "DELETE": "Not authorized to delete this maintenance record",
+    }
+
+    for method, detail in expected.items():
+        assert results[(method, "existing")] == (403, detail)
+        assert results[(method, "missing")] == (403, detail)
 
 
 def test_an_expense_cannot_change_a_frozen_price(ready_record, admin_token):

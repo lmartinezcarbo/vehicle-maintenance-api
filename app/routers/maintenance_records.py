@@ -1,3 +1,4 @@
+import logging
 from decimal import Decimal
 from enum import Enum
 
@@ -23,6 +24,8 @@ from app.services.maintenance_price import (
     calculate_maintenance_total,
     calculate_maintenance_totals,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class MaintenanceSearchField(str, Enum):
@@ -427,15 +430,14 @@ def update_maintenance_record(
     )
 
     if maintenance_record_db is None:
+        logger.warning(
+            "update denied: record %s does not exist (user %s)",
+            maintenance_record_id,
+            access["user"].id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this maintenance record"
-        )
-
-    if maintenance_record_db.status != "in_progress":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only records in progress can be modified",
         )
 
     vehicle = (
@@ -444,10 +446,24 @@ def update_maintenance_record(
         .first()
     )
 
-    if access["user"].role == "customer":
+    if vehicle is None:
+        logger.warning(
+            "update denied: record %s has no vehicle", maintenance_record_db.id
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Customers cannot modify maintenance records"
+            detail="Not authorized to update this maintenance record"
+        )
+
+    if access["user"].role == "customer":
+        logger.warning(
+            "update denied: user %s is a customer (record %s)",
+            access["user"].id,
+            maintenance_record_db.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this maintenance record"
         )
 
     if access["user"].role == "mechanic":
@@ -456,10 +472,24 @@ def update_maintenance_record(
         ).first()
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "update denied: record %s is not on a customer vehicle "
+                "(mechanic %s)",
+                maintenance_record_db.id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only modify customer maintenance records"
+                detail="Not authorized to update this maintenance record"
             )
+
+    # State only after authorization: a 400 here would tell someone who
+    # may not touch the record that it exists and what condition it is in.
+    if maintenance_record_db.status != "in_progress":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only records in progress can be modified",
+        )
 
     update_data = maintenance_data.model_dump(exclude_unset=True)
 
@@ -533,15 +563,14 @@ def replace_maintenance_record(
     )
 
     if record_db is None:
+        logger.warning(
+            "replace denied: record %s does not exist (user %s)",
+            record_id,
+            access["user"].id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to replace this maintenance record"
-        )
-
-    if record_db.status != "in_progress":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only records in progress can be replaced",
         )
 
     vehicle = (
@@ -550,10 +579,24 @@ def replace_maintenance_record(
         .first()
     )
 
-    if access["user"].role == "customer":
+    if vehicle is None:
+        logger.warning(
+            "replace denied: record %s has no vehicle", record_db.id
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Customers cannot modify maintenance records"
+            detail="Not authorized to replace this maintenance record"
+        )
+
+    if access["user"].role == "customer":
+        logger.warning(
+            "replace denied: user %s is a customer (record %s)",
+            access["user"].id,
+            record_db.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to replace this maintenance record"
         )
 
     if access["user"].role == "mechanic":
@@ -562,10 +605,24 @@ def replace_maintenance_record(
         ).first()
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "replace denied: record %s is not on a customer vehicle "
+                "(mechanic %s)",
+                record_db.id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only modify customer maintenance records"
+                detail="Not authorized to replace this maintenance record"
             )
+
+    # State only after authorization: a 400 here would tell someone who
+    # may not touch the record that it exists and what condition it is in.
+    if record_db.status != "in_progress":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only records in progress can be replaced",
+        )
 
     previous_maintenance = (
         db.query(MaintenanceRecord)
@@ -635,15 +692,14 @@ def delete_maintenance_record(
     )
 
     if maintenance_record is None:
+        logger.warning(
+            "delete denied: record %s does not exist (user %s)",
+            maintenance_record_id,
+            access["user"].id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this maintenance record"
-        )
-
-    if maintenance_record.status != "in_progress":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only records in progress can be deleted",
         )
 
     vehicle = (
@@ -652,10 +708,24 @@ def delete_maintenance_record(
         .first()
     )
 
-    if access["user"].role == "customer":
+    if vehicle is None:
+        logger.warning(
+            "delete denied: record %s has no vehicle", maintenance_record.id
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Customers cannot delete maintenance records"
+            detail="Not authorized to delete this maintenance record"
+        )
+
+    if access["user"].role == "customer":
+        logger.warning(
+            "delete denied: user %s is a customer (record %s)",
+            access["user"].id,
+            maintenance_record.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this maintenance record"
         )
 
     if access["user"].role == "mechanic":
@@ -664,10 +734,24 @@ def delete_maintenance_record(
         ).first()
 
         if owner is None or owner.role != "customer":
+            logger.warning(
+                "delete denied: record %s is not on a customer vehicle "
+                "(mechanic %s)",
+                maintenance_record.id,
+                access["user"].id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Mechanics can only delete customer maintenance records"
+                detail="Not authorized to delete this maintenance record"
             )
+
+    # State only after authorization: a 400 here would tell someone who
+    # may not touch the record that it exists and what condition it is in.
+    if maintenance_record.status != "in_progress":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only records in progress can be deleted",
+        )
 
 # admin → puede eliminar cualquier registro
 
