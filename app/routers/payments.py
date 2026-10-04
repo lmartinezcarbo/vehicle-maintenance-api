@@ -10,6 +10,7 @@ from app.schemas import PaymentCreate, PaymentResponse, PaymentDetailResponse
 from app.models import Payment, MaintenanceRecord, Vehicle
 from app.core.dependencies import get_current_user
 from app.core.rate_limit import limiter
+from app.services.email import send_email
 from app.services.maintenance_price import calculate_maintenance_total
 from app.services.stripe_service import (
     create_checkout_session,
@@ -202,6 +203,38 @@ def get_payment(
     return payment
 
 
+def notify_payment_received(payment: Payment) -> None:
+    """
+    Tell the owner the money landed and the car can be picked up.
+
+    Runs after the commit and must never break the webhook: Stripe retries
+    on a 5xx, while the payment row already holds the truth. So a delivery
+    failure is logged and swallowed - the confirmation is a courtesy, not
+    a reason to replay the event.
+    """
+    record = payment.maintenance_record
+    vehicle = record.vehicle
+    owner = vehicle.user
+
+    try:
+        send_email(
+            to_email=owner.email,
+            subject="Payment received - your vehicle is ready",
+            html_content=f"""
+                <h1>Payment received</h1>
+                <p>Hello {owner.name},</p>
+                <p>We received {payment.amount} {payment.currency.upper()} for your
+                {vehicle.make} {vehicle.model} ({record.description}).</p>
+                <p>Your vehicle is ready for pickup.</p>
+            """,
+        )
+    except Exception:
+        logger.exception(
+            "payment confirmation for payment %s could not be sent",
+            payment.id,
+        )
+
+
 @router.post("/webhook")
 async def stripe_webhook(
     request: Request,
@@ -259,6 +292,8 @@ async def stripe_webhook(
         )
         return {"received": True}
 
+    just_paid = False
+
     if event_type == "checkout.session.completed":
         if session.get("payment_status") != "paid":
             return {"received": True}
@@ -267,6 +302,7 @@ async def stripe_webhook(
         # The job is finished: the record is closed for edits and can never
         # be charged again, so its lifecycle ends with the payment.
         payment.maintenance_record.status = "completed"
+        just_paid = True
         if session.get("payment_intent"):
             payment.stripe_payment_intent_id = session["payment_intent"]
     elif event_type == "checkout.session.async_payment_failed":
@@ -275,5 +311,10 @@ async def stripe_webhook(
         payment.status = "expired"
 
     db.commit()
+
+    # Only after the commit, and only on the transition: every duplicate
+    # delivery returned earlier, so this confirmation is sent once per payment.
+    if just_paid:
+        notify_payment_received(payment)
 
     return {"received": True}

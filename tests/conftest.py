@@ -156,6 +156,7 @@ def sent_emails(monkeypatch):
         outbox.append({"to": to_email, "subject": subject, "html": html_content})
 
     monkeypatch.setattr("app.routers.users.send_email", fake_send_email)
+    monkeypatch.setattr("app.routers.payments.send_email", fake_send_email)
     monkeypatch.setattr(limiter, "enabled", False)
 
     return outbox

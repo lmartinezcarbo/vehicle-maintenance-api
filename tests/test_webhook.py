@@ -235,3 +235,51 @@ def test_amount_mismatch_leaves_the_record_open(pending_payment, db):
 
     record = reload_record(db, pending_payment.maintenance_record_id)
     assert record.status == "ready"
+
+
+def test_paid_webhook_emails_the_owner(pending_payment, db, sent_emails):
+    cents = int(pending_payment.amount * 100)
+
+    assert send(completed_event(pending_payment, amount_total=cents)).status_code == 200
+
+    assert len(sent_emails) == 1
+
+    message = sent_emails[0]
+    assert message["to"] == "webhook-owner@example.com"
+    assert message["subject"] == "Payment received - your vehicle is ready"
+    assert "50.00 USD" in message["html"]
+    assert "ready for pickup" in message["html"]
+
+
+def test_duplicate_delivery_does_not_email_twice(pending_payment, db, sent_emails):
+    cents = int(pending_payment.amount * 100)
+    event = completed_event(pending_payment, amount_total=cents)
+
+    assert send(event).status_code == 200
+    assert send(event).status_code == 200
+
+    assert len(sent_emails) == 1
+
+
+def test_rejected_amount_sends_no_confirmation(pending_payment, db, sent_emails):
+    assert send(completed_event(pending_payment, amount_total=1)).status_code == 200
+
+    assert sent_emails == []
+
+
+def test_a_broken_email_does_not_break_the_webhook(
+    pending_payment, db, monkeypatch
+):
+    """Stripe retries on a 5xx, so the confirmation must never be able to
+    fail the webhook: the payment row is the source of truth."""
+
+    def boom(**kwargs):
+        raise RuntimeError("smtp is down")
+
+    monkeypatch.setattr("app.routers.payments.send_email", boom)
+
+    cents = int(pending_payment.amount * 100)
+    response = send(completed_event(pending_payment, amount_total=cents))
+
+    assert response.status_code == 200
+    assert reload(db, pending_payment).status == "paid"
