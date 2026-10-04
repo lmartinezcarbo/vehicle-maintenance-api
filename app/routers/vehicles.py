@@ -283,10 +283,17 @@ def update_vehicle(
         )
 
     if access["user"].role == "customer":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Customers cannot modify vehicle information"
-        )
+        if vehicle_db.user_id != access["user"].id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to update this vehicle"
+            )
+
+        if vehicle_db.verified:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Customers can only modify unverified vehicles"
+            )
 
     if access["user"].role == "mechanic":
         owner = db.query(User).filter(
@@ -328,10 +335,17 @@ def replace_vehicle(
         )
 
     if access["user"].role == "customer":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Customers cannot modify vehicle information"
-        )
+        if vehicle_db.user_id != access["user"].id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to replace this vehicle"
+            )
+
+        if vehicle_db.verified:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Customers can only modify unverified vehicles"
+            )
 
     if access["user"].role == "mechanic":
         owner = db.query(User).filter(
