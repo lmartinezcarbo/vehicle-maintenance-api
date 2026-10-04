@@ -207,7 +207,9 @@ def get_current_user_profile(
     return access["user"]
 
 @router.patch("/{user_id}/role", response_model=UserResponse)
+@limiter.limit("5/minute")
 def update_user_role(
+    request: Request,
     role_data: UserRoleUpdate,
     user_id: int,
     db: Session = Depends(get_db),
@@ -263,7 +265,9 @@ def get_user(
 
 
 @router.patch("/{user_id}", response_model=UserResponse)
+@limiter.limit("10/minute")
 def update_user(
+    request: Request,
     user_id: int,
     user: UserUpdate,
     db: Session = Depends(get_db),
@@ -300,7 +304,9 @@ def update_user(
     return user_db
 
 @router.put("/{user_id}", response_model=UserResponse)
+@limiter.limit("10/minute")
 def replace_user(
+    request: Request,
     user_id: int,
     user_data: UserPut,
     db: Session = Depends(get_db),
@@ -337,7 +343,9 @@ def replace_user(
     return user_db
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("5/minute")
 def delete_user(
+    request: Request,
     user_id: int,
     db: Session = Depends(get_db),
     access = Depends(get_access_user)

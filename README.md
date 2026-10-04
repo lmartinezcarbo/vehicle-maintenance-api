@@ -24,8 +24,10 @@ Interactive documentation is served at `/docs` (Swagger UI) and `/redoc`.
   becomes `paid` and the record `completed`, and the customer gets a
   confirmation email
 * Input validation with Pydantic, filtering, pagination, sorting and search
-* Rate limiting on write endpoints (slowapi, per client); the user profile
-  and role management routes rely on authentication and ownership instead
+* Rate limiting on every write endpoint (slowapi, per client), including
+  profile and role management: 20/minute on workshop resources,
+  10/minute on profile edits and token refresh, 3–5/minute on auth,
+  role changes and account deletes
 * Uniform authorization refusals: one response per endpoint, the real reason
   is written to the log
 * Input-driven HTTP status codes (`201`, `409`, `422`, ...) instead of `500`
