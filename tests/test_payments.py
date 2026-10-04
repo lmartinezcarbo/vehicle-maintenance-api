@@ -3,17 +3,32 @@ from fastapi.testclient import TestClient
 
 from app.core.security import hash_password
 from app.main import app
-from app.models import User
+from app.models import Payment, User
 
 client = TestClient(app)
+
+
+class FakeStripeSession:
+    def __init__(self, session_id, url):
+        self.id = session_id
+        self.url = url
 
 
 def auth(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+def payments_for(db, maintenance_record_id):
+    db.expire_all()
+    return (
+        db.query(Payment)
+        .filter(Payment.maintenance_record_id == maintenance_record_id)
+        .count()
+    )
+
+
 @pytest.fixture
-def owner_token(accounts, pending_payment):
+def owner_token(accounts, ready_record):
     return accounts.login(client, "webhook-owner@example.com")
 
 
@@ -87,3 +102,98 @@ def test_admin_can_read_any_payment(admin_token, pending_payment):
 
     assert response.status_code == 200
     assert response.json()["status"] == "pending"
+
+
+def test_first_checkout_is_created_for_a_ready_record(
+    ready_record, owner_token, db, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.routers.payments.create_checkout_session",
+        lambda **kwargs: FakeStripeSession(
+            f"cs_test_{kwargs['payment_id']}",
+            f"https://checkout.stripe.com/c/pay/cs_test_{kwargs['payment_id']}",
+        ),
+    )
+
+    response = client.post(
+        "/payments/",
+        json={"maintenance_record_id": ready_record.id},
+        headers=auth(owner_token),
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["status"] == "pending"
+    assert data["amount"] == "50.00"
+    assert data["checkout_url"].startswith("https://checkout.stripe.com/")
+    assert payments_for(db, ready_record.id) == 1
+
+
+def test_retry_hands_back_the_open_checkout(
+    pending_payment, owner_token, db, monkeypatch
+):
+    pending_payment.stripe_checkout_session_id = "cs_test_open"
+    db.commit()
+
+    monkeypatch.setattr(
+        "app.routers.payments.get_checkout_url",
+        lambda session_id: f"https://checkout.stripe.com/c/pay/{session_id}",
+    )
+    monkeypatch.setattr(
+        "app.routers.payments.create_checkout_session",
+        lambda **kwargs: pytest.fail("a second checkout session was created"),
+    )
+
+    response = client.post(
+        "/payments/",
+        json={"maintenance_record_id": pending_payment.maintenance_record_id},
+        headers=auth(owner_token),
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["id"] == pending_payment.id
+    assert data["checkout_url"] == "https://checkout.stripe.com/c/pay/cs_test_open"
+    assert payments_for(db, pending_payment.maintenance_record_id) == 1
+
+
+def test_a_paid_record_cannot_be_charged_again(pending_payment, owner_token, db):
+    pending_payment.status = "paid"
+    db.commit()
+
+    response = client.post(
+        "/payments/",
+        json={"maintenance_record_id": pending_payment.maintenance_record_id},
+        headers=auth(owner_token),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Maintenance record has already been paid"
+    assert payments_for(db, pending_payment.maintenance_record_id) == 1
+
+
+def test_record_must_be_ready(ready_record, owner_token, db):
+    ready_record.status = "in_progress"
+    db.commit()
+
+    response = client.post(
+        "/payments/",
+        json={"maintenance_record_id": ready_record.id},
+        headers=auth(owner_token),
+    )
+
+    assert response.status_code == 400
+
+
+def test_another_customer_cannot_pay_someone_elses_record(
+    ready_record, other_token
+):
+    response = client.post(
+        "/payments/",
+        json={"maintenance_record_id": ready_record.id},
+        headers=auth(other_token),
+    )
+
+    assert response.status_code == 403

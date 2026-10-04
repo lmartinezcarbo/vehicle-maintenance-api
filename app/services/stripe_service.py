@@ -47,3 +47,14 @@ def construct_event(payload: bytes, signature: str):
         signature,
         settings.stripe_webhook_secret,
     )
+
+
+def get_checkout_url(session_id: str) -> str:
+    """
+    Fetch the hosted checkout link for a session we created earlier.
+
+    The URL is never stored: Stripe is the source of truth, and asking it
+    back is what lets POST /payments/ reuse an open checkout instead of
+    starting a second one.
+    """
+    return stripe.checkout.Session.retrieve(session_id).url

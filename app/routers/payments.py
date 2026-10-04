@@ -11,7 +11,11 @@ from app.models import Payment, MaintenanceRecord, Vehicle
 from app.core.dependencies import get_current_user
 from app.core.rate_limit import limiter
 from app.services.maintenance_price import calculate_maintenance_total
-from app.services.stripe_service import create_checkout_session, construct_event
+from app.services.stripe_service import (
+    create_checkout_session,
+    construct_event,
+    get_checkout_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +66,49 @@ def create_payment(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to pay for this maintenance record",
         )
+
+    already_paid = (
+        db.query(Payment)
+        .filter(
+            Payment.maintenance_record_id == maintenance_record.id,
+            Payment.status == "paid",
+        )
+        .first()
+    )
+
+    if already_paid is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Maintenance record has already been paid",
+        )
+
+    open_checkout = (
+        db.query(Payment)
+        .filter(
+            Payment.maintenance_record_id == maintenance_record.id,
+            Payment.status == "pending",
+        )
+        .first()
+    )
+
+    # A committed pending payment always carries a Stripe session id: the row
+    # only survives the commit when session creation succeeded. Handing the
+    # same checkout back makes POST /payments/ idempotent, so a retry can
+    # never start a second charge for one record.
+    if open_checkout is not None:
+        return {
+            "id": open_checkout.id,
+            "maintenance_record_id": open_checkout.maintenance_record_id,
+            "amount": open_checkout.amount,
+            "currency": open_checkout.currency,
+            "status": open_checkout.status,
+            "stripe_checkout_session_id": open_checkout.stripe_checkout_session_id,
+            "checkout_url": get_checkout_url(
+                open_checkout.stripe_checkout_session_id
+            ),
+            "created_at": open_checkout.created_at,
+            "paid_at": open_checkout.paid_at,
+        }
 
     total_cost = calculate_maintenance_total(
         db=db,

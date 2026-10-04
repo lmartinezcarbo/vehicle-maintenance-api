@@ -81,8 +81,8 @@ def clean_database():
 
 
 @pytest.fixture
-def pending_payment(db):
-    """A ready maintenance record with a payment waiting for the webhook."""
+def ready_record(db):
+    """A vehicle owned by webhook-owner@example.com with a ready record."""
     owner = User(
         name="Webhook Owner",
         email="webhook-owner@example.com",
@@ -115,10 +115,17 @@ def pending_payment(db):
         status="ready",
     )
     db.add(record)
-    db.flush()
+    db.commit()
+    db.refresh(record)
 
+    return record
+
+
+@pytest.fixture
+def pending_payment(db, ready_record):
+    """The payment waiting for the webhook on that record."""
     payment = Payment(
-        maintenance_record_id=record.id,
+        maintenance_record_id=ready_record.id,
         amount=Decimal("50.00"),
         currency="usd",
         status="pending",
