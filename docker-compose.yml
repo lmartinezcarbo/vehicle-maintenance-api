@@ -13,7 +13,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
+      # Loopback only: the database is for this machine, not for the
+      # café WiFi or the Tailnet. The API itself talks to it over
+      # Docker's internal network (hostname "postgres"), unaffected.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
