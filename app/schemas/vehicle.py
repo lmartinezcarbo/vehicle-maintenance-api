@@ -20,6 +20,9 @@ class VehicleResponse(BaseModel):
     vin: str
     mileage: int
     verified: bool
+    # Whether GET /vehicles/{id}/photo has anything to return, so a client
+    # never has to probe it blind.
+    has_photo: bool
     created_at: datetime
 
 class VehicleUpdate(BaseModel):

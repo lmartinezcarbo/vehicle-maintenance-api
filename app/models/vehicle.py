@@ -36,6 +36,14 @@ class Vehicle(Base):
 
     mileage: Mapped[int] = mapped_column(nullable=False)
 
+    # Generated name inside settings.uploads_dir - never the filename the
+    # client sent, which is how path traversal gets in. None means the
+    # (optional) photo has not been uploaded.
+    photo_file: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+
     verified: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -47,6 +55,10 @@ class Vehicle(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+    @property
+    def has_photo(self) -> bool:
+        return self.photo_file is not None
 
     user: Mapped["User"] = relationship(
         back_populates="vehicles"

@@ -8,6 +8,9 @@ __pycache__/
 # Environment variables
 .env
 
+# Uploaded vehicle photos (local runs only; Docker uses a named volume)
+uploads/
+
 # Test / coverage
 .pytest_cache/
 .coverage

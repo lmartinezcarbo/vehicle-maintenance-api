@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     stripe_success_url: str
     stripe_cancel_url: str
     stripe_webhook_secret: str
+    # Where uploaded vehicle photos live. The container points this at a
+    # named volume (docker-compose.yml); a local run falls back to
+    # ./uploads so nothing ever needs root on the host.
+    uploads_dir: str = "uploads"
 
     model_config = SettingsConfigDict(
         env_file=".env",
