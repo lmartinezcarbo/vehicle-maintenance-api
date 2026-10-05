@@ -1,5 +1,9 @@
 # Vehicle Maintenance API
 
+[![CI](https://github.com/lmartinezcarbo/vehicle-maintenance-api/actions/workflows/ci.yml/badge.svg)](https://github.com/lmartinezcarbo/vehicle-maintenance-api/actions/workflows/ci.yml)
+[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 REST API for managing vehicles, maintenance records, parts, expenses and
 payments for a workshop.
 
@@ -44,7 +48,7 @@ Interactive documentation is served at `/docs` (Swagger UI) and `/redoc`.
 | Auth & security | JWT (PyJWT), pwdlib/Argon2 password hashing, HMAC-SHA256 refresh token digests, RBAC + ownership, slowapi rate limiting |
 | Payments | Stripe Checkout + signed webhooks |
 | Email | Brevo (transactional email: verification, 2FA, payment receipt) |
-| Testing | pytest (97 tests) |
+| Testing | pytest (121 tests) |
 | CI & tooling | GitHub Actions (tests, `alembic check`, `pip-audit`), Docker, Docker Compose, Git |
 
 ## Getting started
@@ -155,7 +159,7 @@ amount that does not match the stored payment.
 ## Tests and CI
 
 ```bash
-pytest -q                     # 97 tests against a real PostgreSQL
+pytest -q                     # 121 tests against a real PostgreSQL
 alembic check                 # migrations match the models
 pip-audit -r requirements.txt # known vulnerabilities in pinned deps
 ```
