@@ -11,6 +11,9 @@ __pycache__/
 # Uploaded vehicle photos (local runs only; Docker uses a named volume)
 uploads/
 
+# Database dumps: password hashes and emails, this machine only
+backups/
+
 # Test / coverage
 .pytest_cache/
 .coverage
