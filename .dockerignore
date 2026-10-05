@@ -1,0 +1,18 @@
+# Keep secrets and local-only data out of the build context entirely.
+# Render clones the repo (so .env never exists there), but a local
+# build does have it - and backups/ holds real database dumps.
+.env
+backups/
+uploads/
+
+.git
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Never copied into the image anyway; this only shrinks the context.
+tests/
+docker-compose.yml
