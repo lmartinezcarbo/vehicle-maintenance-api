@@ -8,9 +8,6 @@ __pycache__/
 # Environment variables
 .env
 
-# Uploaded vehicle photos (local runs only; Docker uses a named volume)
-uploads/
-
 # Database dumps: password hashes and emails, this machine only
 backups/
 

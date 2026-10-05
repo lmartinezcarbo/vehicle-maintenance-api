@@ -36,10 +36,15 @@ class Vehicle(Base):
 
     mileage: Mapped[int] = mapped_column(nullable=False)
 
-    # Generated name inside settings.uploads_dir - never the filename the
-    # client sent, which is how path traversal gets in. None means the
+    # Where the photo lives on Cloudinary: public_id is the handle a
+    # delete points at, url is what serving goes through. None means the
     # (optional) photo has not been uploaded.
-    photo_file: Mapped[str | None] = mapped_column(
+    photo_public_id: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+
+    photo_url: Mapped[str | None] = mapped_column(
         String,
         nullable=True,
     )
@@ -58,7 +63,7 @@ class Vehicle(Base):
 
     @property
     def has_photo(self) -> bool:
-        return self.photo_file is not None
+        return self.photo_url is not None
 
     user: Mapped["User"] = relationship(
         back_populates="vehicles"

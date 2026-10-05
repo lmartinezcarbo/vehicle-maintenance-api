@@ -1,8 +1,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import settings
 from app.main import app
+from app.services import photo_storage
+from app.services.photo_storage import PhotoStorageError
 
 client = TestClient(app)
 
@@ -13,11 +14,43 @@ JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 128
 WEBP = b"RIFF" + (100).to_bytes(4, "little") + b"WEBP" + b"\x00" * 128
 
 
+class FakeCloudinary:
+    """The provider at its best: uploads stick, fetches echo, deletes go."""
+
+    def __init__(self):
+        self.assets = {}
+        self.deleted = []
+        self.counter = 0
+
+    def upload(self, vehicle_id, content, extension):
+        self.counter += 1
+        public_id = f"vehicles/{vehicle_id}/asset{self.counter}"
+        url = (
+            "https://res.cloudinary.com/demo/image/upload/"
+            f"v1/{public_id}.{extension}"
+        )
+        self.assets[public_id] = bytes(content)
+        return public_id, url
+
+    def fetch(self, url):
+        for public_id, content in self.assets.items():
+            if public_id in url:
+                return content
+        raise PhotoStorageError("no such asset")
+
+    def destroy(self, public_id):
+        self.assets.pop(public_id, None)
+        self.deleted.append(public_id)
+
+
 @pytest.fixture(autouse=True)
-def isolated_uploads(tmp_path, monkeypatch):
-    """Every test writes its photos into its own throwaway directory."""
-    monkeypatch.setattr(settings, "uploads_dir", str(tmp_path))
-    return tmp_path
+def fake_photos(monkeypatch):
+    """The API never talks to a real CDN in tests - same seam as Brevo."""
+    fake = FakeCloudinary()
+    monkeypatch.setattr(photo_storage, "upload_photo", fake.upload)
+    monkeypatch.setattr(photo_storage, "fetch_photo", fake.fetch)
+    monkeypatch.setattr(photo_storage, "delete_photo", fake.destroy)
+    return fake
 
 
 def auth(token):
@@ -49,7 +82,7 @@ def upload(vehicle_id, token, content=PNG, filename="photo.png",
     )
 
 
-def test_upload_serve_and_flag_the_photo(accounts, isolated_uploads):
+def test_upload_serve_and_flag_the_photo(accounts, fake_photos):
     accounts.register(client, "Photo Owner", "photo-owner@example.com")
     token = accounts.login(client, "photo-owner@example.com")
     vehicle_id = create_vehicle(token)
@@ -59,6 +92,7 @@ def test_upload_serve_and_flag_the_photo(accounts, isolated_uploads):
 
     response = upload(vehicle_id, token)
     assert response.status_code == 201, response.text
+    assert len(fake_photos.assets) == 1
 
     after = client.get(f"/vehicles/{vehicle_id}", headers=auth(token))
     assert after.json()["has_photo"] is True
@@ -66,14 +100,12 @@ def test_upload_serve_and_flag_the_photo(accounts, isolated_uploads):
     served = client.get(f"/vehicles/{vehicle_id}/photo", headers=auth(token))
     assert served.status_code == 200
     assert served.headers["content-type"] == "image/png"
-    # private: no shared cache may keep somebody's car photo around.
+    # private: no shared cache keeps somebody's car photo around.
     assert served.headers["cache-control"] == "private, max-age=3600"
     assert served.content == PNG
 
-    assert len(list(isolated_uploads.iterdir())) == 1
 
-
-def test_replacing_keeps_exactly_one_file(accounts, isolated_uploads):
+def test_replacing_keeps_exactly_one_asset(accounts, fake_photos):
     accounts.register(client, "Replace Owner", "replace@example.com")
     token = accounts.login(client, "replace@example.com")
     vehicle_id = create_vehicle(token)
@@ -86,7 +118,9 @@ def test_replacing_keeps_exactly_one_file(accounts, isolated_uploads):
     # A replacement is not a creation: 200, same vehicle, same route.
     assert replaced.status_code == 200, replaced.text
 
-    assert len(list(isolated_uploads.iterdir())) == 1
+    # The old asset is destroyed, never left dangling on the provider.
+    assert len(fake_photos.assets) == 1
+    assert len(fake_photos.deleted) == 1
 
     served = client.get(f"/vehicles/{vehicle_id}/photo", headers=auth(token))
     assert served.status_code == 200
@@ -109,7 +143,7 @@ def test_webp_is_accepted(accounts):
     assert served.headers["content-type"] == "image/webp"
 
 
-def test_delete_photo_removes_row_and_file(accounts, isolated_uploads):
+def test_delete_photo_removes_row_and_asset(accounts, fake_photos):
     accounts.register(client, "Deleter", "photo-deleter@example.com")
     token = accounts.login(client, "photo-deleter@example.com")
     vehicle_id = create_vehicle(token)
@@ -126,7 +160,8 @@ def test_delete_photo_removes_row_and_file(accounts, isolated_uploads):
 
     vehicle = client.get(f"/vehicles/{vehicle_id}", headers=auth(token))
     assert vehicle.json()["has_photo"] is False
-    assert list(isolated_uploads.iterdir()) == []
+    assert fake_photos.assets == {}
+    assert len(fake_photos.deleted) == 1
 
 
 def test_a_vehicle_without_a_photo_answers_404(accounts):
@@ -184,13 +219,13 @@ def test_another_owner_cannot_touch_the_photo(accounts):
         "Not authorized to remove a photo from this vehicle"
     )
 
-    # And none of those attempts touched the file.
+    # And none of those attempts touched the asset.
     kept = client.get(f"/vehicles/{vehicle_id}/photo", headers=auth(token_a))
     assert kept.status_code == 200
     assert kept.content == PNG
 
 
-def test_oversized_photo_is_refused(accounts, isolated_uploads):
+def test_oversized_photo_is_refused(accounts, fake_photos):
     accounts.register(client, "Big Photo", "big-photo@example.com")
     token = accounts.login(client, "big-photo@example.com")
     vehicle_id = create_vehicle(token)
@@ -200,7 +235,8 @@ def test_oversized_photo_is_refused(accounts, isolated_uploads):
 
     assert response.status_code == 413
     assert response.json()["detail"] == "Photo exceeds the 5 MB limit"
-    assert list(isolated_uploads.iterdir()) == []
+    # Rejected before the provider ever hears about it.
+    assert fake_photos.assets == {}
 
 
 def test_the_declared_content_type_is_not_trusted(accounts):
@@ -251,7 +287,7 @@ def test_an_unknown_vehicle_answers_403_like_the_whole_router(accounts):
 
 
 def test_a_verified_vehicle_photo_is_out_of_the_owners_reach(
-    accounts, db, isolated_uploads
+    accounts, db, fake_photos
 ):
     accounts.register(client, "Verified Ride", "verified-ride@example.com")
     token = accounts.login(client, "verified-ride@example.com")
@@ -271,20 +307,64 @@ def test_a_verified_vehicle_photo_is_out_of_the_owners_reach(
     assert response.json()["detail"] == (
         "Customers can only modify unverified vehicles"
     )
-    assert list(isolated_uploads.iterdir()) == []
+    assert fake_photos.assets == {}
 
 
-def test_deleting_the_vehicle_takes_its_photo_file_with_it(
-    accounts, isolated_uploads
+def test_deleting_the_vehicle_takes_its_asset_with_it(
+    accounts, fake_photos
 ):
     accounts.register(client, "Scrapyard", "scrapyard@example.com")
     token = accounts.login(client, "scrapyard@example.com")
     vehicle_id = create_vehicle(token)
     upload(vehicle_id, token)
-    assert len(list(isolated_uploads.iterdir())) == 1
+    assert len(fake_photos.assets) == 1
 
     response = client.delete(f"/vehicles/{vehicle_id}", headers=auth(token))
     assert response.status_code == 200
 
-    # No orphan file: the row is gone and the disk followed it.
-    assert list(isolated_uploads.iterdir()) == []
+    # No orphan on the provider: the row is gone and the asset followed.
+    assert fake_photos.assets == {}
+    assert len(fake_photos.deleted) == 1
+
+
+def test_a_failed_upload_leaves_the_database_unaware(
+    accounts, db, monkeypatch
+):
+    accounts.register(client, "Cdn Down", "cdn-down@example.com")
+    token = accounts.login(client, "cdn-down@example.com")
+    vehicle_id = create_vehicle(token)
+
+    def broken_upload(**kwargs):
+        raise PhotoStorageError("provider is down")
+
+    monkeypatch.setattr(photo_storage, "upload_photo", broken_upload)
+
+    response = upload(vehicle_id, token)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Photo storage unavailable"
+
+    from app.models.vehicle import Vehicle
+
+    vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
+    db.refresh(vehicle)
+    assert vehicle.photo_public_id is None
+    assert vehicle.photo_url is None
+
+
+def test_a_failed_fetch_answers_503(accounts, monkeypatch):
+    accounts.register(client, "Cdn Read Down", "cdn-read@example.com")
+    token = accounts.login(client, "cdn-read@example.com")
+    vehicle_id = create_vehicle(token)
+    assert upload(vehicle_id, token).status_code == 201
+
+    def broken_fetch(url):
+        raise PhotoStorageError("provider is down")
+
+    monkeypatch.setattr(photo_storage, "fetch_photo", broken_fetch)
+
+    response = client.get(
+        f"/vehicles/{vehicle_id}/photo", headers=auth(token)
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Photo storage unavailable"

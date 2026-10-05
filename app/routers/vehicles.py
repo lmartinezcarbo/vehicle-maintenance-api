@@ -1,7 +1,5 @@
 import logging
-import uuid
 from enum import Enum
-from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -17,7 +15,6 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.database import get_db
 from app.schemas import VehicleCreate, VehicleResponse, VehicleUpdate, VehiclePut
 from app.models import User
@@ -26,6 +23,8 @@ from app.core.dependencies import get_access_user, require_mechanic
 from app.core.query_filters import filter_by_user_access
 from app.core.query_params import get_sort_params, SortOrder
 from app.core.rate_limit import limiter
+from app.services import photo_storage
+from app.services.photo_storage import PhotoStorageError
 
 logger = logging.getLogger(__name__)
 
@@ -58,19 +57,6 @@ def detect_image_type(data: bytes) -> str | None:
         return "webp"
 
     return None
-
-
-def remove_photo_file(filename: str) -> None:
-    """
-    Best effort: an undeletable file is a log line, never a 500.
-    """
-    # .name even on our own value: a column never becomes a path.
-    target = Path(settings.uploads_dir) / Path(filename).name
-
-    try:
-        target.unlink(missing_ok=True)
-    except OSError:
-        logger.warning("photo file %s could not be removed", filename)
 
 
 class VehicleSearchField(str, Enum):
@@ -568,13 +554,14 @@ def delete_vehicle(
 # admin → puede eliminar cualquier vehículo
 
     # Captured before the delete: the instance is expired afterwards.
-    photo_file = vehicle.photo_file
+    photo_public_id = vehicle.photo_public_id
 
     db.delete(vehicle)
     db.commit()
 
-    if photo_file is not None:
-        remove_photo_file(photo_file)
+    if photo_public_id is not None:
+        # Post-commit and best effort, same as everywhere else.
+        photo_storage.delete_photo(photo_public_id)
 
     logger.info(
         "vehicle %s deleted (user %s)", vehicle_id, access["user"].id
@@ -673,28 +660,41 @@ async def upload_vehicle_photo(
             detail="Only JPEG, PNG and WEBP images are accepted",
         )
 
-    uploads = Path(settings.uploads_dir)
-    uploads.mkdir(parents=True, exist_ok=True)
+    # The provider first, the row second: a failed upload must leave the
+    # database completely unaware of it.
+    try:
+        public_id, photo_url = photo_storage.upload_photo(
+            vehicle_id=vehicle_id,
+            content=content,
+            extension=extension,
+        )
+    except PhotoStorageError:
+        logger.exception(
+            "photo upload for vehicle %s failed (user %s)",
+            vehicle_id,
+            access["user"].id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Photo storage unavailable",
+        )
 
-    # uuid, never the client's filename: "../../etc/passwd" is exactly
-    # what path traversal looks like on the way in.
-    filename = f"{uuid.uuid4().hex}.{extension}"
-    previous = vehicle_db.photo_file
+    previous = vehicle_db.photo_public_id
+    vehicle_db.photo_public_id = public_id
+    vehicle_db.photo_url = photo_url
 
     try:
-        (uploads / filename).write_bytes(content)
-        vehicle_db.photo_file = filename
         db.commit()
     except Exception:
-        # The row is the source of truth: when it cannot be written the
-        # file must not stay behind as an orphan.
-        (uploads / filename).unlink(missing_ok=True)
+        # The row is the source truth: when it cannot be written the
+        # asset must not stay behind on the provider as an orphan.
+        photo_storage.delete_photo(public_id)
         raise
 
     if previous is not None:
         # Post-commit and best effort: the photo that answers from now on
-        # is already the new one, a leftover file is only a log line.
-        remove_photo_file(previous)
+        # is already the new one, a leftover asset is only a log line.
+        photo_storage.delete_photo(previous)
 
     logger.info(
         "vehicle %s photo uploaded (user %s)",
@@ -770,7 +770,7 @@ def get_vehicle_photo(
                 detail="Not authorized to access this vehicle",
             )
 
-    if vehicle_db.photo_file is None:
+    if vehicle_db.photo_url is None:
         # Only now that authorization passed: the caller already knows
         # the vehicle exists and nobody else learns anything.
         raise HTTPException(
@@ -778,28 +778,24 @@ def get_vehicle_photo(
             detail="Vehicle has no photo",
         )
 
-    path = Path(settings.uploads_dir) / Path(vehicle_db.photo_file).name
-
-    if not path.is_file():
-        # The row is the source of truth for existence; there is simply
-        # nothing to serve. Never a silent 200.
-        logger.warning(
-            "photo file missing for vehicle %s (%s)",
-            vehicle_id,
-            vehicle_db.photo_file,
-        )
+    # Proxy, not redirect: the API stays the only gate in front of the
+    # photo instead of handing out a URL anyone could keep using.
+    try:
+        data = photo_storage.fetch_photo(vehicle_db.photo_url)
+    except PhotoStorageError:
+        logger.exception("photo fetch for vehicle %s failed", vehicle_id)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Vehicle has no photo",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Photo storage unavailable",
         )
 
     media_type = PHOTO_MEDIA_TYPES.get(
-        path.suffix.lstrip("."),
+        vehicle_db.photo_url.rsplit(".", 1)[-1].lower(),
         "application/octet-stream",
     )
 
     return Response(
-        content=path.read_bytes(),
+        content=data,
         media_type=media_type,
         # private: no shared cache keeps somebody's car photo around.
         headers={"Cache-Control": "private, max-age=3600"},
@@ -870,17 +866,21 @@ def delete_vehicle_photo(
                 detail="Not authorized to remove a photo from this vehicle",
             )
 
-    if vehicle_db.photo_file is None:
+    if vehicle_db.photo_url is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Vehicle has no photo",
         )
 
-    filename = vehicle_db.photo_file
-    vehicle_db.photo_file = None
+    public_id = vehicle_db.photo_public_id
+    vehicle_db.photo_public_id = None
+    vehicle_db.photo_url = None
     db.commit()
 
-    remove_photo_file(filename)
+    if public_id is not None:
+        # Post-commit: the row already says "no photo", so a provider
+        # that refuses to delete costs a log line, not the answer.
+        photo_storage.delete_photo(public_id)
 
     logger.info(
         "vehicle %s photo removed (user %s)",

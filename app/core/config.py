@@ -12,10 +12,12 @@ class Settings(BaseSettings):
     stripe_success_url: str
     stripe_cancel_url: str
     stripe_webhook_secret: str
-    # Where uploaded vehicle photos live. The container points this at a
-    # named volume (docker-compose.yml); a local run falls back to
-    # ./uploads so nothing ever needs root on the host.
-    uploads_dir: str = "uploads"
+    # Photo storage (Cloudinary). Optional on purpose: the test suite
+    # replaces the provider at the seam, so the suite must import
+    # without real credentials. Uploads fail loudly until they are set.
+    cloudinary_cloud_name: str = ""
+    cloudinary_api_key: str = ""
+    cloudinary_api_secret: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
