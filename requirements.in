@@ -1,0 +1,26 @@
+# Runtime dependencies (top-level only).
+#
+# This file is the source of truth; requirements.txt is the compiled,
+# fully-pinned lock installed by the Docker image. Recompile with:
+#
+#   uv pip compile requirements.in --python-version 3.14 \
+#       --generate-hashes -o requirements.txt
+#
+# Dev-only tools (pytest, pip-audit, httpx) live in requirements-dev.in.
+
+alembic==1.20.0
+brevo-python==5.0.2
+cloudinary==1.46.3
+email-validator==2.3.0
+fastapi==0.141.1
+psycopg[binary]==3.3.5
+pwdlib[argon2]==0.3.1
+pydantic==2.13.5
+pydantic-settings==2.15.0
+PyJWT==2.15.0
+python-dotenv==1.2.3
+python-multipart==0.0.32
+slowapi==0.1.10
+SQLAlchemy==2.0.52
+stripe==15.6.1
+uvicorn[standard]==0.52.4

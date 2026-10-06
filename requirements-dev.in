@@ -1,0 +1,14 @@
+# Development and CI dependencies.
+#
+# Everything from requirements.in plus the tools the suite and CI need:
+# pytest (tests), httpx (FastAPI TestClient transport) and pip-audit
+# (the audit job). Recompile with:
+#
+#   uv pip compile requirements-dev.in --python-version 3.14 \
+#       --generate-hashes -o requirements-dev.txt
+
+-r requirements.in
+
+httpx==0.28.1
+pip-audit==2.10.1
+pytest==9.1.1

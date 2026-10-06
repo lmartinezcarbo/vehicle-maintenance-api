@@ -50,7 +50,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Run the test suite
         # conftest.py drops the test schema, runs alembic upgrade head
@@ -77,9 +77,10 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Report known vulnerabilities
-        # pip_audit ships in requirements.txt; a red job here means a
-        # pinned dependency has a published advisory with a fix.
+        # requirements.txt is the compiled runtime lock: auditing it
+        # checks exactly what the deployed image ships. A red job here
+        # means a pinned dependency has a published advisory with a fix.
         run: pip-audit -r requirements.txt
