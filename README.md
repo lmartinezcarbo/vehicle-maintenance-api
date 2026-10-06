@@ -180,9 +180,14 @@ step 4 also teaches when you get a `429`.
 
 | Role | Can do |
 | --- | --- |
-| `customer` | Manage their **own** vehicles, records, parts and expenses; pay their own ready records |
-| `mechanic` | Everything on vehicles owned by a `customer`: verify vehicles, create/edit records, attach parts, register expenses |
+| `customer` | Register their own vehicles and edit them **until staff verify them**; read their records, parts and expenses; pay their own ready records |
+| `mechanic` | Everything on vehicles owned by a `customer`: verify vehicles (freezing them for the owner), create/edit records, attach parts, register expenses |
 | `admin` | Everything, including the parts catalog, user management and any record |
+
+The freeze is the point of the workshop flow: the customer adds a vehicle
+and its photo, staff verifies it, and from then on the vehicle (and its
+maintenance history) is the workshop's to manage — the customer keeps read
+access and pays.
 
 Refusals are deliberately uniform: for a given endpoint the status code and
 `detail` are identical whether the resource does not exist, belongs to
