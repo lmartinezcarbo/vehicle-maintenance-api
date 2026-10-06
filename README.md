@@ -38,18 +38,11 @@ curl -s -X POST "$API/users/demo-login" -H 'Content-Type: application/json' \
   -d '{"role":"mechanic"}'
 ```
 
-The three seeded accounts, for reference:
-
-| Role | Email | Password |
-| --- | --- | --- |
-| `customer` — owns the demo vehicle and pays | `lmartinezcarbo1994@gmail.com` | `ProdDemo-2026-vmapi` |
-| `mechanic` | `lmartinezcarbo@gmail.com` | `MechDemo-2026-vmapi` |
-| `admin` | `lmartinezcarbo+admin@gmail.com` | `AdminDemo-2026-vmapi` |
-
-The emails are the author's own: if you sign in the long way (password +
-emailed 2FA code) the code only reaches those inboxes, so for a live
-walkthrough use the demo buttons above. Registering your own account also
-works end to end — the verification and 2FA codes arrive in *your* inbox.
+The three seeded accounts cover the three roles — `customer` (owns the
+demo vehicle and pays), `mechanic` and `admin` — but their credentials are
+not published: use the one-click demo above, or register your own account
+and walk the real verification + 2FA flow (the codes arrive in *your*
+inbox).
 
 Behind the demo accounts sits one verified Toyota Corolla, one `completed`
 maintenance record ("Oil change", $89.99 of labor) and its `paid` payment —
@@ -167,23 +160,24 @@ is deliberate and documented rather than hidden.
 ```bash
 API=https://vehicle-maintenance-api-f3jn.onrender.com
 
-# 1. Quick path: one-click demo login (no email; DEMO_MODE is on in prod)
+# 1. One-click demo login (no email; DEMO_MODE is on in prod).
+#    Use role "customer", "mechanic" or "admin".
 curl -s -X POST "$API/users/demo-login" -H 'Content-Type: application/json' \
   -d '{"role":"mechanic"}'
 
-# ...or the full flow: log in (form-encoded), get {"requires_2fa": true},
-# read the emailed code and swap it for tokens
-curl -s -X POST "$API/users/login" \
-  -d 'username=lmartinezcarbo@gmail.com' -d 'password=MechDemo-2026-vmapi'
-curl -s -X POST "$API/users/verify-2fa" -H 'Content-Type: application/json' \
-  -d '{"email":"lmartinezcarbo@gmail.com","code":"123456"}'
+# ...or register your own account and walk the real 2FA flow: the codes
+# arrive in your inbox, so this path needs no shared credentials.
+#   POST /users/            (register)
+#   POST /users/verify-email (code from your inbox)
+#   POST /users/login       (form-encoded) -> {"requires_2fa": true}
+#   POST /users/verify-2fa  -> access + refresh tokens
 
 TOKEN='<access_token from the response>'
 
-# 3. Authenticated request
+# 2. Authenticated request
 curl -s "$API/vehicles/" -H "Authorization: Bearer $TOKEN"
 
-# 4. A business rule in action: the mileage floor answers 400
+# 3. A business rule in action: the mileage floor answers 400
 #    "Maintenance mileage cannot be lower than the vehicle mileage"
 curl -s -X POST "$API/maintenance-records/" -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
@@ -193,7 +187,7 @@ curl -s -X POST "$API/maintenance-records/" -H "Authorization: Bearer $TOKEN" \
 ```
 
 Login allows 5 attempts/minute per IP and write endpoints 20/minute, so
-step 4 also teaches when you get a `429`.
+the last step also teaches when you get a `429`.
 
 ## Authorization
 
