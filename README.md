@@ -20,6 +20,10 @@ Interactive documentation is served at `/docs` (Swagger UI) and `/redoc`.
   — health check at `/health`, interactive docs at `/docs`
 * Web frontend: <https://vehicle-maintenance-frontend-nine.vercel.app>
 
+The API runs on Render's free tier, so the first request after a quiet
+period can take **30–60 seconds** to wake up; `/health` is instant once it
+is warm.
+
 ### Demo data
 
 Three public demo accounts live in production (they exist to be demoed;
@@ -135,6 +139,11 @@ Presenting a refresh token that was already rotated is treated as theft:
 the whole token family is revoked and the request gets `401`. Expired rows
 are pruned where new sessions are minted, and the three lookups
 (`user_id`, `family_id`, `expires_at`) are indexed.
+
+The bundled web frontend stores the token pair in `localStorage` — simple,
+but readable by any script on the page. A deployment handling real money
+would move the refresh token into an `httpOnly` cookie; here the trade-off
+is deliberate and documented rather than hidden.
 
 ## Trying it with curl
 
