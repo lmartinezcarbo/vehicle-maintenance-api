@@ -16,6 +16,13 @@ backups/
 .coverage
 htmlcov/
 
+# Personal development notes: never published (see README "project
+# notes" convention). Kept out of the tree so a fresh clone stays clean.
+datos_test.txt
+
+# Local Archify visual-check evidence (the diagram itself is tracked)
+docs/architecture/*.visual-check.*
+
 # VS Code
 .vscode/
 
@@ -29,9 +36,6 @@ PROMPT-MAESTRO-VEHICLE-API.txt
 # Agent instructions & memory: local development only, never in the repo
 AGENTS.md
 memory.md
-
-#datos de usuarios password_hash entre otros
-datos_test.txt
 
 # Local-only compose overlay (extra CORS origins for the dev server)
 docker-compose.override.yml
