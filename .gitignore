@@ -26,5 +26,12 @@ Thumbs.db
 # Personal project notes
 PROMPT-MAESTRO-VEHICLE-API.txt
 
+# Agent instructions & memory: local development only, never in the repo
+AGENTS.md
+memory.md
+
 #datos de usuarios password_hash entre otros
 datos_test.txt
+
+# Local-only compose overlay (extra CORS origins for the dev server)
+docker-compose.override.yml
