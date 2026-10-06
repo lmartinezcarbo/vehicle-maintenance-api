@@ -632,25 +632,25 @@ def update_maintenance_record(
     }
 
 
-@router.put("/{record_id}", response_model=MaintenanceRecordResponse)
+@router.put("/{maintenance_record_id}", response_model=MaintenanceRecordResponse)
 @limiter.limit("20/minute")
 def replace_maintenance_record(
     request: Request,
-    record_id: int,
+    maintenance_record_id: int,
     record_data: MaintenanceRecordPut,
     db: Session = Depends(get_db),
     access=Depends(get_access_user),
 ):
     record_db = (
         db.query(MaintenanceRecord)
-        .filter(MaintenanceRecord.id == record_id)
+        .filter(MaintenanceRecord.id == maintenance_record_id)
         .first()
     )
 
     if record_db is None:
         logger.warning(
             "replace denied: record %s does not exist (user %s)",
-            record_id,
+            maintenance_record_id,
             access["user"].id,
         )
         raise HTTPException(
