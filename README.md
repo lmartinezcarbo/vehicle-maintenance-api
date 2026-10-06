@@ -92,8 +92,9 @@ Cloudinary and is uploaded once through the UI.
 
 ### Environment variables
 
-Copy the names below into a local `.env` (the file is gitignored, so real
-values never reach the repository):
+Copy `.env.example` to `.env` (the file is gitignored, so real values
+never reach the repository) and fill in the values. Every variable the
+application reads is listed there with a comment; the essentials:
 
 | Variable | Used by | Purpose |
 | --- | --- | --- |
@@ -226,10 +227,16 @@ amount that does not match the stored payment.
 ## Tests and CI
 
 ```bash
+pip install -r requirements-dev.txt   # runtime + pytest, httpx, pip-audit
 pytest -q                     # 123 tests against a real PostgreSQL
 alembic check                 # migrations match the models
 pip-audit -r requirements.txt # known vulnerabilities in pinned deps
 ```
+
+`requirements.in` / `requirements-dev.in` list the top-level
+dependencies; `requirements.txt` / `requirements-dev.txt` are the
+compiled, fully-pinned locks (compiled with `uv pip compile`) that the
+Docker image and CI install.
 
 The suite rebuilds the test schema from the migrations on every run, patches
 email out and disables rate limits, so it never sends mail or depends on
@@ -254,6 +261,8 @@ alembic/         migrations
 tests/           pytest suite
 scripts/         backup, restore and demo seed
 docs/            generated architecture diagram
+requirements.in  top-level runtime dependencies (edited by hand)
+requirements.txt compiled runtime lock (installed by the Docker image)
 ```
 
 ## Documentation
