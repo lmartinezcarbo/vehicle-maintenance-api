@@ -41,9 +41,10 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
-      # Non-secret values, versioned in git. The three URLs point at
-      # localhost until the frontend exists; F23 swaps in the Vercel
-      # origin. CORS_ORIGINS only affects browsers, never curl.
+      # Non-secret values, versioned in git. The Stripe URLs still point
+      # at localhost until F25 swaps in the Vercel origin; CORS already
+      # allows the deployed frontend plus the local dev server.
+      # CORS_ORIGINS only affects browsers, never curl.
       - key: CLOUDINARY_CLOUD_NAME
         value: ntslbtlt # already public in every delivered image URL
       - key: STRIPE_SUCCESS_URL
@@ -51,4 +52,4 @@ services:
       - key: STRIPE_CANCEL_URL
         value: http://localhost:3000/cancel
       - key: CORS_ORIGINS
-        value: http://localhost:3000
+        value: http://localhost:5173,https://vehicle-maintenance-frontend-nine.vercel.app,https://vehicle-maintenance-frontend-4vevnom4o-nest-worthy-llc.vercel.app
