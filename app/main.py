@@ -30,7 +30,8 @@ app = FastAPI( title="Vehicle Maintenance API",
                version="0.1.0",
                contact={
                 "name": "Luis Gamal Martinez Carbo",
-                "email": "lmartinezcarbo1994@example.com",
+                "email": "lmartinezcarbo1994@gmail.com",
+                "url": "https://github.com/lmartinezcarbo",
                 },
             )
 
