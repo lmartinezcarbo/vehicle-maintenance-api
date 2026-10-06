@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     cloudinary_api_key: str = ""
     cloudinary_api_secret: str = ""
 
+    # Portfolio demo switch. OFF by default, so a real deployment never
+    # exposes the demo-login shortcut. When true, the three seeded demo
+    # accounts can mint tokens without the emailed 2FA code (the public
+    # READMEs list them on purpose). Secrets are still secrets.
+    demo_mode: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

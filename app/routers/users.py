@@ -17,10 +17,14 @@ from app.models.refresh_token import RefreshToken
 from app.core.rate_limit import limiter
 from app.services.email import send_email
 from app.services.one_time_code import create_one_time_code, verify_one_time_code
+from app.core.config import settings
 from app.schemas.user import (
     UserCreate, UserResponse,
     UserUpdate, UserPut,
     RefreshTokenRequest,
+    DemoLoginRequest,
+    DemoAvailabilityResponse,
+    TokenPairResponse,
     EmailVerificationRequest,
     TwoFactorVerificationRequest,
     ResendTwoFactorRequest,
@@ -74,6 +78,34 @@ def _prune_expired_tokens(db: Session, user_id: int) -> None:
         RefreshToken.user_id == user_id,
         RefreshToken.expires_at < datetime.now(timezone.utc),
     ).delete(synchronize_session=False)
+
+
+def _issue_token_pair(db: Session, user: User) -> dict:
+    """Mint an access + refresh pair for a user and persist the session.
+
+    Shared by the 2FA flow and the demo shortcut so both paths issue
+    exactly the same tokens and rotate through the same table.
+    """
+    access_token = create_access_token({"sub": str(user.id)})
+
+    refresh_token = create_refresh_token()
+
+    refresh_token_record = RefreshToken(
+        user_id=user.id,
+        token_hash=hash_refresh_token(refresh_token),
+        family_id=uuid4(),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    db.add(refresh_token_record)
+    _prune_expired_tokens(db, user.id)
+    db.commit()
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }
 
 class UserSearchField(str, Enum):
     name = "name"
@@ -216,6 +248,69 @@ def get_current_user_profile(
     access=Depends(get_access_user)
 ):
     return access["user"]
+
+
+# Public portfolio demo only. Enabled by DEMO_MODE (off by default), it
+# mints the same token pair as the 2FA flow for the seeded demo accounts,
+# so a reviewer can click straight in. Restricted to the three roles
+# below; the frontend never needs to know the addresses. Declared before
+# the /{user_id} routes so "demo" is not swallowed as a user id.
+DEMO_ACCOUNTS = {
+    "customer": "lmartinezcarbo1994@gmail.com",
+    "mechanic": "lmartinezcarbo@gmail.com",
+    "admin": "lmartinezcarbo+admin@gmail.com",
+}
+
+
+@router.get("/demo", response_model=DemoAvailabilityResponse)
+def demo_availability():
+    """Whether the public demo shortcut is live, so the UI can show it.
+
+    Returns an empty role list when DEMO_MODE is off, and the UI simply
+    hides the demo buttons on a real deployment.
+    """
+    if not settings.demo_mode:
+        return DemoAvailabilityResponse(enabled=False)
+
+    return DemoAvailabilityResponse(
+        enabled=True,
+        roles=list(DEMO_ACCOUNTS),
+    )
+
+
+@router.post("/demo-login", response_model=TokenPairResponse)
+@limiter.limit("10/minute")
+def demo_login(
+    request: Request,
+    data: DemoLoginRequest,
+    db: Session = Depends(get_db),
+):
+    """Password-less login for the three public demo accounts.
+
+    Disabled unless DEMO_MODE is set, and limited to the three known
+    roles; a real deployment leaves the flag off, so this answers 404
+    there. The addresses are already published in the READMEs on purpose.
+    """
+    email = DEMO_ACCOUNTS.get(data.role) if settings.demo_mode else None
+
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
+
+    user = db.query(User).filter(User.email == email).first()
+
+    if user is None or not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
+
+    logger.info("demo login: %s (user %s)", user.email, user.id)
+
+    return _issue_token_pair(db, user)
+
 
 @router.patch("/{user_id}/role", response_model=UserResponse)
 @limiter.limit("5/minute")
@@ -743,29 +838,7 @@ def verify_2fa(
             detail="Invalid or expired verification code",
         )
 
-    access_token = create_access_token({
-        "sub": str(user.id),
-    })
-
-    refresh_token = create_refresh_token()
-    refresh_token_hash = hash_refresh_token(refresh_token)
-
-    refresh_token_record = RefreshToken(
-        user_id=user.id,
-        token_hash=refresh_token_hash,
-        family_id=uuid4(),
-        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
-    )
-
-    db.add(refresh_token_record)
-    _prune_expired_tokens(db, user.id)
-    db.commit()
-
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-    }
+    return _issue_token_pair(db, user)
 
 @router.post("/resend-2fa")
 @limiter.limit("3/minute")

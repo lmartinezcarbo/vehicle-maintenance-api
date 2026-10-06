@@ -42,6 +42,18 @@ class UserRoleUpdate(BaseModel):
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
+class DemoLoginRequest(BaseModel):
+    role: Literal["customer", "mechanic", "admin"]
+
+class DemoAvailabilityResponse(BaseModel):
+    enabled: bool
+    roles: list[str] = []
+
+class TokenPairResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
 class EmailVerificationRequest(BaseModel):
     email: EmailStr
     code: str

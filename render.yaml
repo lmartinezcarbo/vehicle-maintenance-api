@@ -53,3 +53,9 @@ services:
         value: https://vehicle-maintenance-frontend-nine.vercel.app/app/payments/cancel
       - key: CORS_ORIGINS
         value: http://localhost:5173,https://vehicle-maintenance-frontend-nine.vercel.app,https://vehicle-maintenance-frontend-4vevnom4o-nest-worthy-llc.vercel.app
+      # Public portfolio demo: lets the three seeded accounts sign in
+      # without the emailed 2FA code, so a reviewer can try the live app.
+      # Remove this line (or set it false) for a deployment serving real
+      # users; the shortcut answers 404 as soon as the flag is off.
+      - key: DEMO_MODE
+        value: "true"

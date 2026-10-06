@@ -26,8 +26,19 @@ is warm.
 
 ### Demo data
 
-Three public demo accounts live in production (they exist to be demoed;
-the 2FA code arrives by email within minutes):
+The frontend shows a **one-click demo login**: pick `customer`, `mechanic`
+or `admin` and you are in, no email needed. It calls
+`POST /users/demo-login`, a shortcut that is only live while the backend
+runs with `DEMO_MODE=true` — a real deployment leaves it off and the
+endpoint answers `404`.
+
+```bash
+# One-click demo (returns the same token pair as the 2FA flow)
+curl -s -X POST "$API/users/demo-login" -H 'Content-Type: application/json' \
+  -d '{"role":"mechanic"}'
+```
+
+The three seeded accounts, for reference:
 
 | Role | Email | Password |
 | --- | --- | --- |
@@ -35,9 +46,14 @@ the 2FA code arrives by email within minutes):
 | `mechanic` | `lmartinezcarbo@gmail.com` | `MechDemo-2026-vmapi` |
 | `admin` | `lmartinezcarbo+admin@gmail.com` | `AdminDemo-2026-vmapi` |
 
-Behind them sits one verified Toyota Corolla, one `completed` maintenance
-record ("Oil change", $89.99 of labor) and its `paid` payment — exactly
-what `scripts/seed.py` creates on a fresh database:
+The emails are the author's own: if you sign in the long way (password +
+emailed 2FA code) the code only reaches those inboxes, so for a live
+walkthrough use the demo buttons above. Registering your own account also
+works end to end — the verification and 2FA codes arrive in *your* inbox.
+
+Behind the demo accounts sits one verified Toyota Corolla, one `completed`
+maintenance record ("Oil change", $89.99 of labor) and its `paid` payment —
+exactly what `scripts/seed.py` creates on a fresh database:
 
 ```bash
 python scripts/seed.py      # insert-only and idempotent; run from the repo root
@@ -151,11 +167,14 @@ is deliberate and documented rather than hidden.
 ```bash
 API=https://vehicle-maintenance-api-f3jn.onrender.com
 
-# 1. Log in (form-encoded): answers {"requires_2fa": true} and emails a code
+# 1. Quick path: one-click demo login (no email; DEMO_MODE is on in prod)
+curl -s -X POST "$API/users/demo-login" -H 'Content-Type: application/json' \
+  -d '{"role":"mechanic"}'
+
+# ...or the full flow: log in (form-encoded), get {"requires_2fa": true},
+# read the emailed code and swap it for tokens
 curl -s -X POST "$API/users/login" \
   -d 'username=lmartinezcarbo@gmail.com' -d 'password=MechDemo-2026-vmapi'
-
-# 2. Swap the emailed code for tokens
 curl -s -X POST "$API/users/verify-2fa" -H 'Content-Type: application/json' \
   -d '{"email":"lmartinezcarbo@gmail.com","code":"123456"}'
 
