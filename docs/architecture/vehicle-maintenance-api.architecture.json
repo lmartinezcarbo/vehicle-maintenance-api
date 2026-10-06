@@ -2,214 +2,210 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Vehicle Maintenance API",
-    "subtitle": "Backend architecture",
+    "title": "Vehicle Maintenance System",
     "output": "vehicle-maintenance-api.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/lmartinezcarbo/vehicle-maintenance-api",
       "provider": "github",
       "link_mode": "web",
-      "revision": "b3e5992ed4e2bd2673cf36eb4ac0caf3954e7b49"
+      "revision": "bfe19af3a3fda26a3651c510a0da4592fc816c4d"
     }
-  },
-  "layout": {
-    "mode": "grid"
   },
   "components": [
     {
-      "id": "client",
+      "id": "users",
       "type": "external",
-      "label": "Client",
-      "sublabel": "HTTP / JSON",
-      "pos": [300, 0],
-      "size": [180, 60]
+      "label": "Workshop Users",
+      "sublabel": "Browsers",
+      "pos": [40, 270],
+      "size": [160, 64]
     },
     {
-      "id": "fastapi",
-      "type": "backend",
-      "label": "FastAPI Application",
-      "sublabel": "app/main.py",
-      "sources": [
-        {
-          "path": "app/main.py",
-          "label": "Application entry point"
-        }
-      ],
-      "pos": [300, 180],
-      "size": [180, 60]
+      "id": "cloudinary",
+      "type": "external",
+      "label": "Cloudinary",
+      "sublabel": "Vehicle photos",
+      "pos": [250, 110],
+      "size": [160, 64]
     },
     {
-      "id": "security",
+      "id": "auth",
       "type": "security",
-      "label": "Auth & Security",
-      "sublabel": "JWT · Roles · Ownership",
+      "label": "Auth & Limits",
+      "sublabel": "JWT · 2FA · RBAC · slowapi",
+      "pos": [560, 110],
+      "size": [170, 64],
       "sources": [
-        {
-          "path": "app/core/security.py",
-          "label": "Security"
-        },
-        {
-          "path": "app/core/dependencies.py",
-          "label": "Authorization dependencies"
-        }
-      ],
-      "pos": [50, 360],
-      "size": [180, 60]
+        { "path": "app/core/security.py", "label": "Tokens and hashing" },
+        { "path": "app/core/rate_limit.py", "label": "Rate limit per client" }
+      ]
     },
     {
-      "id": "routers",
+      "id": "stripe",
+      "type": "external",
+      "label": "Stripe",
+      "sublabel": "Checkout + webhook",
+      "pos": [880, 110],
+      "size": [160, 64]
+    },
+    {
+      "id": "frontend",
+      "type": "frontend",
+      "label": "Web Frontend",
+      "sublabel": "React 19 · Vite · Vercel",
+      "pos": [250, 270],
+      "size": [160, 64]
+    },
+    {
+      "id": "api",
       "type": "backend",
-      "label": "API Routers",
-      "sublabel": "app/routers/",
+      "label": "FastAPI Service",
+      "sublabel": "Render · Docker · Ohio",
+      "pos": [560, 270],
+      "size": [170, 64],
       "sources": [
-        {
-          "path": "app/routers/users.py",
-          "label": "User endpoints"
-        },
-        {
-          "path": "app/routers/vehicles.py",
-          "label": "Vehicle endpoints"
-        },
-        {
-          "path": "app/routers/maintenance_records.py",
-          "label": "Maintenance endpoints"
-        }
-      ],
-      "pos": [300, 360],
-      "size": [180, 60]
+        { "path": "app/main.py", "label": "Application entry point" }
+      ]
     },
     {
-      "id": "schemas",
-      "type": "backend",
-      "label": "Schemas & Query",
-      "sublabel": "Validation · Filters",
-      "sources": [
-        {
-          "path": "app/schemas/vehicle.py",
-          "label": "Vehicle schema"
-        },
-        {
-          "path": "app/schemas/maintenance_record.py",
-          "label": "Maintenance schema"
-        },
-        {
-          "path": "app/core/query_params.py",
-          "label": "Query parameters"
-        }
-      ],
-      "pos": [550, 360],
-      "size": [180, 60]
-    },
-    {
-      "id": "models",
-      "type": "backend",
-      "label": "SQLAlchemy Models",
-      "sublabel": "Relational domain model",
-      "sources": [
-        {
-          "path": "app/models/vehicle.py",
-          "label": "Vehicle model"
-        },
-        {
-          "path": "app/models/maintenance_record.py",
-          "label": "Maintenance model"
-        },
-        {
-          "path": "app/models/expense.py",
-          "label": "Expense model"
-        }
-      ],
-      "pos": [300, 540],
-      "size": [180, 60]
-    },
-    {
-      "id": "database",
-      "type": "backend",
-      "label": "Database Access",
-      "sublabel": "SQLAlchemy Session",
-      "sources": [
-        {
-          "path": "app/database.py",
-          "label": "Database configuration"
-        }
-      ],
-      "pos": [300, 720],
-      "size": [180, 60]
-    },
-    {
-      "id": "alembic",
-      "type": "backend",
-      "label": "Alembic",
-      "sublabel": "Database migrations",
-      "pos": [50, 900],
-      "size": [180, 60]
-    },
-    {
-      "id": "postgresql",
+      "id": "db",
       "type": "database",
       "label": "PostgreSQL",
-      "sublabel": "Relational database",
-      "pos": [300, 900],
-      "size": [180, 60]
+      "sublabel": "Neon · Ohio",
+      "pos": [880, 270],
+      "size": [160, 64],
+      "sources": [
+        { "path": "app/database.py", "label": "Session and engine" }
+      ]
+    },
+    {
+      "id": "brevo",
+      "type": "external",
+      "label": "Brevo",
+      "sublabel": "Transactional email",
+      "pos": [40, 430],
+      "size": [160, 64]
+    },
+    {
+      "id": "domain",
+      "type": "backend",
+      "label": "Routers · Schemas · Services",
+      "sublabel": "Rules · pricing · emails",
+      "pos": [560, 430],
+      "size": [210, 64],
+      "sources": [
+        { "path": "app/routers/maintenance_records.py", "label": "Route handling" },
+        { "path": "app/schemas/maintenance_record.py", "label": "Validation" },
+        { "path": "app/services/maintenance_price.py", "label": "Pricing" }
+      ]
     }
   ],
   "connections": [
     {
-      "id": "client-fastapi",
-      "from": "client",
-      "to": "fastapi",
-      "label": "HTTP / JSON",
+      "id": "users-frontend",
+      "from": "users",
+      "to": "frontend",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "frontend-api",
+      "from": "frontend",
+      "to": "api",
+      "label": "REST · JWT",
       "variant": "emphasis",
-      "labelDy": 30
+      "labelAt": [450, 292]
     },
     {
-      "id": "fastapi-routers",
-      "from": "fastapi",
-      "to": "routers",
-      "label": "Route handling",
-      "labelDy": 30
+      "id": "auth-api",
+      "from": "auth",
+      "to": "api",
+      "label": "enforce JWT · 2FA",
+      "variant": "security",
+      "labelAt": [645, 188]
     },
     {
-      "id": "security-routers",
-      "from": "security",
-      "to": "routers",
-      "label": "Auth",
-      "variant": "security"
+      "id": "api-domain",
+      "from": "api",
+      "to": "domain",
+      "label": "route & validate",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [645, 348]
     },
     {
-      "id": "routers-schemas",
-      "from": "routers",
-      "to": "schemas",
-      "label": "Validate"
+      "id": "domain-db",
+      "from": "domain",
+      "to": "db",
+      "label": "SQL · Alembic"
     },
     {
-      "id": "routers-models",
-      "from": "routers",
-      "to": "models",
-      "label": "CRUD",
-      "labelDy": 30
+      "id": "api-stripe",
+      "from": "api",
+      "to": "stripe",
+      "label": "checkout session",
+      "labelAt": [757, 200]
     },
     {
-      "id": "models-database",
-      "from": "models",
-      "to": "database",
-      "label": "SQLAlchemy",
-      "labelDy": 30
+      "id": "stripe-api",
+      "from": "stripe",
+      "to": "api",
+      "label": "signed webhook",
+      "variant": "dashed",
+      "labelAt": [780, 330]
     },
     {
-      "id": "database-postgresql",
-      "from": "database",
-      "to": "postgresql",
-      "label": "SQL",
-      "labelDy": 30
-    },
-    {
-      "id": "alembic-postgresql",
-      "from": "alembic",
-      "to": "postgresql",
-      "label": "Migrations",
+      "id": "api-cloudinary",
+      "from": "api",
+      "to": "cloudinary",
+      "label": "photo proxy",
       "variant": "dashed"
+    },
+    {
+      "id": "api-brevo",
+      "from": "api",
+      "to": "brevo",
+      "label": "send email",
+      "variant": "dashed"
+    },
+    {
+      "id": "brevo-users",
+      "from": "brevo",
+      "to": "users",
+      "label": "2FA · receipts",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Frontend",
+      "items": [
+        "React SPA on Vercel; localStorage JWTs",
+        "CORS allow-list: prod and local dev"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "API & data",
+      "items": [
+        "RBAC plus ownership; one uniform 403",
+        "Records freeze after in_progress",
+        "Odometer floors maintenance mileage",
+        "slowapi: 20/min writes, 3-5/min auth",
+        "Neon Postgres in Ohio; Alembic at boot",
+        "Refresh rotation with reuse detection"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Integrations",
+      "items": [
+        "Stripe: paid only via the signed webhook",
+        "Brevo: verification, 2FA, receipts",
+        "Cloudinary photos behind the API"
+      ]
     }
   ]
 }
