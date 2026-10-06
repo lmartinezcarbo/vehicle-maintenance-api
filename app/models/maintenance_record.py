@@ -72,6 +72,11 @@ class MaintenanceRecord(Base):
     expenses: Mapped[list["Expense"]] = relationship(
         back_populates="maintenance_record",
         passive_deletes=True,
+        # expenses.vehicle_id belongs to a composite FK back into this
+        # table AND to the direct vehicle FK, so the Vehicle.expenses
+        # relationship writes the same column. Documented overlap; the
+        # Expense.maintenance_record side is viewonly.
+        overlaps="expenses",
     )
     payments: Mapped[list["Payment"]] = relationship(
         back_populates="maintenance_record",

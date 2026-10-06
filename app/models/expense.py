@@ -51,7 +51,10 @@ class Expense(Base):
         server_default=func.now(),
     )
     vehicle: Mapped["Vehicle"] = relationship(
-        back_populates="expenses"
+        back_populates="expenses",
+        # Same column (expenses.vehicle_id) is shared with the composite
+        # FK that MaintenanceRecord.expenses reads through.
+        overlaps="expenses",
     )
     maintenance_record: Mapped["MaintenanceRecord | None"] = relationship(
         back_populates="expenses",
