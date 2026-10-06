@@ -1,14 +1,14 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MaintenanceRecordCreate(BaseModel):
     vehicle_id: int
     service_type: str
     description: str
-    mileage: int
+    mileage: int = Field(..., ge=0)
     service_date: datetime
     labor_cost: Decimal
     notes: str | None = None
@@ -30,7 +30,7 @@ class MaintenanceRecordResponse(BaseModel):
 class MaintenanceRecordUpdate(BaseModel):
     service_type: str | None = None
     description: str | None = None
-    mileage: int | None = None
+    mileage: int | None = Field(default=None, ge=0)
     service_date: datetime | None = None
     labor_cost: Decimal | None = None
     notes: str | None = None
@@ -38,7 +38,7 @@ class MaintenanceRecordUpdate(BaseModel):
 class MaintenanceRecordPut(BaseModel):
     service_type: str
     description: str
-    mileage: int
+    mileage: int = Field(..., ge=0)
     service_date: datetime
     labor_cost: Decimal
     notes: str | None = None

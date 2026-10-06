@@ -253,6 +253,67 @@ def test_mileage_cannot_move_backwards(job, mechanic_token):
     )
 
 
+def test_mileage_cannot_be_below_the_vehicle(owner_token, mechanic_token):
+    """Option A: the odometer set on the vehicle is a floor of its own."""
+    vehicle = client.post(
+        "/vehicles/",
+        json={"make": "Honda", "model": "Civic", "year": 2021,
+              "vin": "MILEAGEFLOORVEH1", "mileage": 60000},
+        headers=auth(owner_token),
+    )
+    assert vehicle.status_code == 201, vehicle.text
+    vehicle_id = vehicle.json()["id"]
+
+    verified = client.patch(
+        f"/vehicles/{vehicle_id}/verify", headers=auth(mechanic_token)
+    )
+    assert verified.status_code == 200, verified.text
+
+    response = client.post(
+        "/maintenance-records/",
+        # First record of this vehicle: only the odometer guards it.
+        json={"vehicle_id": vehicle_id, "service_type": "service",
+              "description": "First visit", "mileage": 500,
+              "service_date": "2026-10-06T00:00:00Z",
+              "labor_cost": "10.00"},
+        headers=auth(mechanic_token),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Maintenance mileage cannot be lower than the vehicle mileage"
+    )
+
+    accepted = client.post(
+        "/maintenance-records/",
+        json={"vehicle_id": vehicle_id, "service_type": "service",
+              "description": "First visit", "mileage": 60000,
+              "service_date": "2026-10-06T00:00:00Z",
+              "labor_cost": "10.00"},
+        headers=auth(mechanic_token),
+    )
+
+    assert accepted.status_code == 201, accepted.text
+
+
+def test_same_day_records_cannot_lower_mileage(job, mechanic_token):
+    """`<=`: a second record dated the same day still checks the first."""
+    response = client.post(
+        "/maintenance-records/",
+        json={"vehicle_id": job["vehicle_id"], "service_type": "service",
+              "description": "Same day, fewer kilometres", "mileage": 10400,
+              "service_date": "2026-10-01T00:00:00Z",
+              "labor_cost": "10.00"},
+        headers=auth(mechanic_token),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Maintenance mileage cannot be lower than the previous "
+        "maintenance mileage"
+    )
+
+
 # --------------------------------------------------------------------------
 # Scoping: what somebody else is allowed to even see
 # --------------------------------------------------------------------------

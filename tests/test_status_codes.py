@@ -268,10 +268,10 @@ def test_a_negative_mileage_is_unprocessable(admin_token, worker):
         headers=auth(admin_token),
     )
 
+    # 422 either way; now the schema rejects it before the database does,
+    # so the detail is Pydantic's and points at the offending field.
     assert response.status_code == 422
-    assert response.json()["detail"] == (
-        "Some of the submitted values are out of range"
-    )
+    assert response.json()["detail"][0]["loc"] == ["body", "mileage"]
 
 
 def test_a_negative_expense_amount_is_unprocessable(admin_token, worker):

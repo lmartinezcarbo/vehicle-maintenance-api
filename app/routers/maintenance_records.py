@@ -104,9 +104,10 @@ def create_maintenance_record(
         db.query(MaintenanceRecord)
         .filter(
             MaintenanceRecord.vehicle_id == maintenance.vehicle_id,
-            MaintenanceRecord.service_date < maintenance.service_date,
+            # `<=` so two records on the same day cannot bypass the floor.
+            MaintenanceRecord.service_date <= maintenance.service_date,
         )
-        .order_by(desc(MaintenanceRecord.service_date))
+        .order_by(desc(MaintenanceRecord.mileage))
         .first()
     )
 
@@ -114,6 +115,12 @@ def create_maintenance_record(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Maintenance mileage cannot be lower than the previous maintenance mileage"
+        )
+
+    if maintenance.mileage < vehicle.mileage:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Maintenance mileage cannot be lower than the vehicle mileage"
         )
 
     new_maintenance = MaintenanceRecord(
@@ -580,9 +587,9 @@ def update_maintenance_record(
         .filter(
             MaintenanceRecord.vehicle_id == maintenance_record_db.vehicle_id,
             MaintenanceRecord.id != maintenance_record_db.id,
-            MaintenanceRecord.service_date < effective_service_date,
+            MaintenanceRecord.service_date <= effective_service_date,
         )
-        .order_by(desc(MaintenanceRecord.service_date))
+        .order_by(desc(MaintenanceRecord.mileage))
         .first()
     )
 
@@ -590,6 +597,12 @@ def update_maintenance_record(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Maintenance mileage cannot be lower than the previous maintenance mileage"
+        )
+
+    if effective_mileage < vehicle.mileage:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Maintenance mileage cannot be lower than the vehicle mileage"
         )
 
     for field, value in update_data.items():
@@ -701,9 +714,9 @@ def replace_maintenance_record(
         .filter(
             MaintenanceRecord.vehicle_id == record_db.vehicle_id,
             MaintenanceRecord.id != record_db.id,
-            MaintenanceRecord.service_date < record_data.service_date,
+            MaintenanceRecord.service_date <= record_data.service_date,
         )
-        .order_by(desc(MaintenanceRecord.service_date))
+        .order_by(desc(MaintenanceRecord.mileage))
         .first()
     )
 
@@ -711,6 +724,12 @@ def replace_maintenance_record(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Maintenance mileage cannot be lower than the previous maintenance mileage"
+        )
+
+    if record_data.mileage < vehicle.mileage:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Maintenance mileage cannot be lower than the vehicle mileage"
         )
 
     record_db.service_type = record_data.service_type
