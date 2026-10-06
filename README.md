@@ -14,6 +14,34 @@ Docker.
 
 Interactive documentation is served at `/docs` (Swagger UI) and `/redoc`.
 
+## Live demo
+
+* API (production): <https://vehicle-maintenance-api-f3jn.onrender.com>
+  — health check at `/health`, interactive docs at `/docs`
+* Web frontend: <https://vehicle-maintenance-frontend-nine.vercel.app>
+
+### Demo data
+
+Three public demo accounts live in production (they exist to be demoed;
+the 2FA code arrives by email within minutes):
+
+| Role | Email | Password |
+| --- | --- | --- |
+| `customer` — owns the demo vehicle and pays | `lmartinezcarbo1994@gmail.com` | `ProdDemo-2026-vmapi` |
+| `mechanic` | `lmartinezcarbo@gmail.com` | `MechDemo-2026-vmapi` |
+| `admin` | `lmartinezcarbo+admin@gmail.com` | `AdminDemo-2026-vmapi` |
+
+Behind them sits one verified Toyota Corolla, one `completed` maintenance
+record ("Oil change", $89.99 of labor) and its `paid` payment — exactly
+what `scripts/seed.py` creates on a fresh database:
+
+```bash
+python scripts/seed.py      # insert-only and idempotent; run from the repo root
+```
+
+The vehicle photo is the single piece the seed leaves out: it lives on
+Cloudinary and is uploaded once through the UI.
+
 ## Features
 
 * User registration with email verification and login with a emailed 2FA code
@@ -48,7 +76,7 @@ Interactive documentation is served at `/docs` (Swagger UI) and `/redoc`.
 | Auth & security | JWT (PyJWT), pwdlib/Argon2 password hashing, HMAC-SHA256 refresh token digests, RBAC + ownership, slowapi rate limiting |
 | Payments | Stripe Checkout + signed webhooks |
 | Email | Brevo (transactional email: verification, 2FA, payment receipt) |
-| Testing | pytest (121 tests) |
+| Testing | pytest (123 tests) |
 | CI & tooling | GitHub Actions (tests, `alembic check`, `pip-audit`), Docker, Docker Compose, Git |
 
 ## Getting started
@@ -108,6 +136,36 @@ the whole token family is revoked and the request gets `401`. Expired rows
 are pruned where new sessions are minted, and the three lookups
 (`user_id`, `family_id`, `expires_at`) are indexed.
 
+## Trying it with curl
+
+```bash
+API=https://vehicle-maintenance-api-f3jn.onrender.com
+
+# 1. Log in (form-encoded): answers {"requires_2fa": true} and emails a code
+curl -s -X POST "$API/users/login" \
+  -d 'username=lmartinezcarbo@gmail.com' -d 'password=MechDemo-2026-vmapi'
+
+# 2. Swap the emailed code for tokens
+curl -s -X POST "$API/users/verify-2fa" -H 'Content-Type: application/json' \
+  -d '{"email":"lmartinezcarbo@gmail.com","code":"123456"}'
+
+TOKEN='<access_token from the response>'
+
+# 3. Authenticated request
+curl -s "$API/vehicles/" -H "Authorization: Bearer $TOKEN"
+
+# 4. A business rule in action: the mileage floor answers 400
+#    "Maintenance mileage cannot be lower than the vehicle mileage"
+curl -s -X POST "$API/maintenance-records/" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"vehicle_id":1,"service_type":"Oil change","description":"demo",
+       "mileage":100,"service_date":"2026-10-10T00:00:00Z",
+       "labor_cost":"20.00"}'
+```
+
+Login allows 5 attempts/minute per IP and write endpoints 20/minute, so
+step 4 also teaches when you get a `429`.
+
 ## Authorization
 
 | Role | Can do |
@@ -159,7 +217,7 @@ amount that does not match the stored payment.
 ## Tests and CI
 
 ```bash
-pytest -q                     # 121 tests against a real PostgreSQL
+pytest -q                     # 123 tests against a real PostgreSQL
 alembic check                 # migrations match the models
 pip-audit -r requirements.txt # known vulnerabilities in pinned deps
 ```
@@ -185,6 +243,7 @@ app/
   services/      email, Stripe, maintenance pricing
 alembic/         migrations
 tests/           pytest suite
+scripts/         backup, restore and demo seed
 docs/            generated architecture diagram
 ```
 
