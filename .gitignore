@@ -16,9 +16,12 @@ backups/
 .coverage
 htmlcov/
 
-# Personal development notes: never published (see README "project
-# notes" convention). Kept out of the tree so a fresh clone stays clean.
+# Personal development notes: never published. These living documents
+# (progress log, build prompt) are kept outside the repo in
+# ~/notas-vehicle-api/; the patterns stay ignored in case a copy is ever
+# dropped back in to work on.
 datos_test.txt
+PROMPT-MAESTRO-VEHICLE-API.txt
 
 # Local Archify visual-check evidence (the diagram itself is tracked)
 docs/architecture/*.visual-check.*
@@ -29,9 +32,6 @@ docs/architecture/*.visual-check.*
 # OS files
 .DS_Store
 Thumbs.db
-
-# Personal project notes
-PROMPT-MAESTRO-VEHICLE-API.txt
 
 # Agent instructions & memory: local development only, never in the repo
 AGENTS.md
